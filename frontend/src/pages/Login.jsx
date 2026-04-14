@@ -1,17 +1,59 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useLocation, Navigate } from 'react-router-dom'
+import { api } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
+  const { login, user, ready } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const from = location.state?.from?.pathname
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const handleSubmit = (e) => {
+  //  Prevent render before auth is ready
+  if (!ready) {
+    return <p className="text-center mt-10 text-slate-500">Loading...</p>
+  }
+
+  //  Redirect if already logged in
+  if (user) {
+    return (
+      <Navigate
+        to={user.role === 'teacher' ? '/teacher' : '/student'}
+        replace
+      />
+    )
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    alert('Login functionality will be added later')
+    setError('')
+    setLoading(true)
+
+    try {
+      const data = await api.login(email.trim(), password)
+
+      //  Store in AuthContext (session-based)
+      login(data.token, data.user)
+
+      const dest =
+        from ||
+        (data.user.role === 'teacher' ? '/teacher' : '/student')
+
+      navigate(dest, { replace: true })
+    } catch (err) {
+      setError(err.message || 'Login failed')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-indigo-50 to-slate-50 px-4 py-12">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-indigo-50 to-slate-50 px-4 py-12">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/50">
         <h1 className="text-2xl font-bold text-slate-900">Sign in</h1>
 
@@ -20,12 +62,19 @@ export default function Login() {
         </p>
 
         <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
+          {error && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {error}
+            </p>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-slate-700">
               Email
             </label>
             <input
               type="email"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -39,6 +88,7 @@ export default function Login() {
             </label>
             <input
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -48,14 +98,18 @@ export default function Login() {
 
           <button
             type="submit"
-            className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white shadow-lg hover:bg-indigo-700"
+            disabled={loading}
+            className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-indigo-700 disabled:opacity-60"
           >
-            Sign in
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-slate-500">
-          <Link to="/" className="font-medium text-indigo-600 hover:text-indigo-800">
+          <Link
+            to="/"
+            className="font-medium text-indigo-600 hover:text-indigo-800"
+          >
             ← Back to home
           </Link>
         </p>
