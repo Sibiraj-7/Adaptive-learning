@@ -13,6 +13,7 @@ from db.schema import (
 )
 from services.errors import ServiceError
 from services.question_service import get_questions_by_ids
+from services.recommendation_service import generate_recommendation
 from services.serialization import require_oid, serialize_doc
 
 
@@ -131,6 +132,8 @@ def submit_attempt(student_id: str, payload: dict) -> dict[str, Any]:
 
     candidates.sort(key=lambda x: (x[0], x[1]))
     recommended_global = candidates[0][1] if candidates else ""
+    current_topic = (quiz.get("topic") or "").strip() or recommended_global or "General"
+    recommendation = generate_recommendation(current_topic, total_score, max_score)
 
     answers_stored = [
         {
@@ -149,7 +152,8 @@ def submit_attempt(student_id: str, payload: dict) -> dict[str, Any]:
         "total_score": total_score,
         "max_score": max_score,
         "topic_performance": topic_perf,
-        "recommended_next_topic": recommended_global,
+        "mastery": recommendation,
+        "recommended_next_topic": recommendation["recommended_next_topic"],
     }
     ins = db[COLLECTION_QUIZ_ATTEMPTS].insert_one(attempt_doc)
     attempt_doc["_id"] = ins.inserted_id
@@ -163,5 +167,5 @@ def submit_attempt(student_id: str, payload: dict) -> dict[str, Any]:
         "attempt": serialize_doc(attempt_doc),
         "percentage": round(100.0 * total_score / max_score, 2) if max_score else 0.0,
         "topic_performance": topic_perf,
-        "recommended_next_topic": recommended_global,
+        "recommended_next_topic": recommendation["recommended_next_topic"],
     }
