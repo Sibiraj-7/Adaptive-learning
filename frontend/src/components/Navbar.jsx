@@ -12,7 +12,6 @@ export default function Navbar() {
     navigate('/login', { replace: true })
   }
 
-  //  Hide navbar if not logged in
   if (!user) return null
 
   const linkBase =
@@ -23,14 +22,12 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-        
         <Link
           to="/"
           className="text-lg font-semibold text-indigo-900 transition hover:text-indigo-700"
         >
           Adaptive Learning
         </Link>
-
         <nav className="flex flex-wrap items-center gap-1 sm:gap-2">
           {isTeacher && (
             <>
@@ -42,73 +39,56 @@ export default function Navbar() {
               >
                 Dashboard
               </Link>
-
               <Link
                 to="/teacher/quizzes"
                 className={`${linkBase} ${
-                  pathname.startsWith('/teacher/quizzes')
-                    ? linkActive
-                    : linkInactive
+                  pathname.startsWith('/teacher/quizzes') ? linkActive : linkInactive
                 }`}
               >
                 Quizzes
               </Link>
-
               <Link
                 to="/teacher/materials"
                 className={`${linkBase} ${
-                  pathname.startsWith('/teacher/materials')
-                    ? linkActive
-                    : linkInactive
+                  pathname.startsWith('/teacher/materials') ? linkActive : linkInactive
                 }`}
               >
                 Materials
               </Link>
             </>
           )}
-
           {isStudent && (
             <>
               <Link
                 to="/student"
                 className={`${linkBase} ${
-                  pathname === '/student' ||
-                  pathname.startsWith('/student/quiz/')
+                  pathname === '/student' || pathname.startsWith('/student/quiz/')
                     ? linkActive
                     : linkInactive
                 }`}
               >
                 Dashboard
               </Link>
-
               <Link
                 to="/student/quizzes"
                 className={`${linkBase} ${
-                  pathname.startsWith('/student/quizzes')
-                    ? linkActive
-                    : linkInactive
+                  pathname.startsWith('/student/quizzes') ? linkActive : linkInactive
                 }`}
               >
                 Quizzes
               </Link>
-
               <Link
                 to="/student/progress"
                 className={`${linkBase} ${
-                  pathname.startsWith('/student/progress')
-                    ? linkActive
-                    : linkInactive
+                  pathname.startsWith('/student/progress') ? linkActive : linkInactive
                 }`}
               >
                 Progress
               </Link>
-
               <Link
                 to="/student/materials"
                 className={`${linkBase} ${
-                  pathname.startsWith('/student/materials')
-                    ? linkActive
-                    : linkInactive
+                  pathname.startsWith('/student/materials') ? linkActive : linkInactive
                 }`}
               >
                 Materials
@@ -116,18 +96,13 @@ export default function Navbar() {
             </>
           )}
         </nav>
-
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
-          
-          {/* ✅ Safe access */}
           <span className="hidden text-sm text-slate-600 sm:inline">
-            {user?.full_name || user?.email}
+            {user.full_name || user.email}
           </span>
-
           <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide text-indigo-800">
-            {user?.role}
+            {user.role}
           </span>
-
           <button
             type="button"
             onClick={handleLogout}
