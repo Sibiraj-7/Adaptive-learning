@@ -32,9 +32,6 @@ export default function Home() {
 
       <main>
         <section className="mx-auto max-w-5xl px-4 py-16 text-center sm:px-6 sm:py-24">
-          <p className="text-sm font-medium uppercase tracking-wide text-indigo-600">
-            Final year project
-          </p>
           <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
             Adaptive Learning Path Recommendation Engine
           </h1>
