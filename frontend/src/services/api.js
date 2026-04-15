@@ -1,31 +1,29 @@
 /**
  * API client for Adaptive Learning backend.
- * Base URL: http://127.0.0.1:5000/api
+ * Base URL: http://127.0.0.1:5000/api (override with VITE_API_BASE in .env)
  */
 
 const API_BASE =
   import.meta.env.VITE_API_BASE || 'http://127.0.0.1:5000/api'
 
-/* =========================
-   SESSION-BASED AUTH (IMPORTANT)
-   ========================= */
+let memoryAuthToken = null
 
-export function setAuth({ token, user }) {
-  sessionStorage.setItem('auth', JSON.stringify({ token, user }))
+export function setAuthToken(token) {
+  memoryAuthToken = token || null
 }
 
 export function getAuth() {
-  const raw = sessionStorage.getItem('auth')
-  return raw ? JSON.parse(raw) : null
+  return memoryAuthToken ? { token: memoryAuthToken } : null
+}
+
+/** @deprecated Use AuthContext + setAuthToken; kept for compatibility */
+export function setAuth({ token }) {
+  setAuthToken(token)
 }
 
 export function clearAuth() {
-  sessionStorage.removeItem('auth')
+  setAuthToken(null)
 }
-
-/* =========================
-   CORE FETCH FUNCTION
-   ========================= */
 
 async function apiFetch(path, options = {}) {
   const {
@@ -35,20 +33,13 @@ async function apiFetch(path, options = {}) {
     skipAuth = false,
     ...rest
   } = options
-
-  const stored = getAuth()
-  const token = skipAuth ? null : tokenOpt ?? stored?.token
-
+  const token = skipAuth ? null : tokenOpt ?? memoryAuthToken
   const isFormData =
     typeof FormData !== 'undefined' && body instanceof FormData
-
   const headers = { ...rest.headers }
-
   if (token) headers.Authorization = `Bearer ${token}`
-
   if (!isFormData) {
-    headers['Content-Type'] =
-      headers['Content-Type'] || 'application/json'
+    headers['Content-Type'] = headers['Content-Type'] || 'application/json'
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -58,8 +49,8 @@ async function apiFetch(path, options = {}) {
       body === undefined
         ? undefined
         : isFormData
-        ? body
-        : JSON.stringify(body),
+          ? body
+          : JSON.stringify(body),
     ...rest,
   })
 
@@ -73,32 +64,24 @@ async function apiFetch(path, options = {}) {
   }
 
   const data = await res.json().catch(() => ({}))
-
   if (!res.ok) {
     const err = new Error(data.error || `Request failed (${res.status})`)
     err.status = res.status
     err.data = data
     throw err
   }
-
   return data
 }
 
-/* =========================
-   API METHODS
-   ========================= */
-
 export const api = {
-  // 🔐 AUTH
   login(email, password) {
-    return apiFetch('/auth/login', {
+    return apiFetch('/login', {
       method: 'POST',
       body: { email, password },
       skipAuth: true,
     })
   },
 
-  //  QUESTIONS
   getQuestions(params = {}) {
     const q = new URLSearchParams()
     if (params.subject) q.set('subject', params.subject)
@@ -111,20 +94,20 @@ export const api = {
     return apiFetch('/questions', { method: 'POST', body: payload })
   },
 
-  updateQuestion(id, payload) {
-    return apiFetch(`/questions/${encodeURIComponent(id)}`, {
+  updateQuestion(questionId, payload) {
+    return apiFetch(`/questions/${encodeURIComponent(questionId)}`, {
       method: 'PUT',
       body: payload,
     })
   },
 
-  deleteQuestion(id) {
-    return apiFetch(`/questions/${encodeURIComponent(id)}`, {
+  deleteQuestion(questionId) {
+    return apiFetch(`/questions/${encodeURIComponent(questionId)}`, {
       method: 'DELETE',
     })
   },
 
-  // QUIZZES
+  /** Teacher: list own quizzes */
   getQuizzes() {
     return apiFetch('/quizzes')
   },
@@ -137,24 +120,28 @@ export const api = {
     return apiFetch('/quizzes/assign', { method: 'POST', body: payload })
   },
 
+  /** Student: assignments with quiz info */
   getAssignedQuizzes() {
     return apiFetch('/quizzes/assigned')
   },
 
+  /** Student: quiz + questions (no correct answers) */
   getQuizForAttempt(quizId, assignmentId) {
     const q = new URLSearchParams({ assignment_id: assignmentId })
-    return apiFetch(`/quizzes/take/${encodeURIComponent(quizId)}?${q}`)
+    return apiFetch(`/quizzes/take/${encodeURIComponent(quizId)}?${q.toString()}`)
   },
 
+  /** Teacher: list attempts for a quiz */
   getQuizAttempts(quizId) {
-    return apiFetch(`/quizzes/${encodeURIComponent(quizId)}/attempts`)
+    return apiFetch(
+      `/quizzes/${encodeURIComponent(quizId)}/attempts`
+    )
   },
 
   submitAttempt(payload) {
     return apiFetch('/attempts', { method: 'POST', body: payload })
   },
 
-  //  DASHBOARD
   getStudentDashboard() {
     return apiFetch('/dashboard/student')
   },
@@ -163,12 +150,12 @@ export const api = {
     return apiFetch('/dashboard/teacher')
   },
 
-  //  DEPARTMENTS
+  /** Teacher: distinct department values from student profiles */
   getDepartments() {
     return apiFetch('/quizzes/departments')
   },
 
-  //  MATERIALS
+  /** Materials (teacher create/list own; student list visible + recommended) */
   getMaterials(params = {}) {
     const q = new URLSearchParams()
     if (params.department) q.set('department', params.department)
@@ -187,31 +174,43 @@ export const api = {
   },
 
   async downloadMaterialFile(materialId, filename = 'material.pdf') {
-    const stored = getAuth()
-    const token = stored?.token
-
+    const token = memoryAuthToken
     const res = await fetch(
       `${API_BASE}/materials/${encodeURIComponent(materialId)}/file`,
       {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
-      }
+      },
     )
-
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}))
-      throw new Error(errData.error || `Download failed (${res.status})`)
+      const err = new Error(errData.error || `Download failed (${res.status})`)
+      err.status = res.status
+      throw err
     }
-
     const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-
+    const objectUrl = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
-    a.download = filename.endsWith('.pdf') ? filename : `${filename}.pdf`
+    a.href = objectUrl
+    const name =
+      filename.endsWith('.pdf') ? filename : `${filename.replace(/\.+$/, '')}.pdf`
+    a.download = name
+    a.rel = 'noopener'
     document.body.appendChild(a)
     a.click()
     a.remove()
-
-    URL.revokeObjectURL(url)
+    URL.revokeObjectURL(objectUrl)
   },
+}
+
+/** @deprecated Prefer `api.getMaterials` — matches project fetch client, not axios */
+export function getMaterials(params) {
+  return api.getMaterials(params)
+}
+
+export function createMaterial(data) {
+  return api.createMaterial(data)
+}
+
+export function getRecommendedMaterials() {
+  return api.getRecommendedMaterials()
 }

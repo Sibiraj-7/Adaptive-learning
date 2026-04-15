@@ -1,21 +1,17 @@
-/* eslint-disable react-refresh/only-export-components */
-
 import { createContext, useContext, useMemo, useState } from 'react'
-import { clearAuth, getAuth, setAuth } from '../services/api'
+import { clearAuth, setAuthToken } from '../services/api'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const stored = getAuth()
-
-  const [user, setUser] = useState(stored?.user || null)
-  const [token, setToken] = useState(stored?.token || null)
+  const [user, setUser] = useState(null)
+  const [token, setToken] = useState(null)
   const [ready] = useState(true)
 
   const login = (nextToken, nextUser) => {
     setToken(nextToken)
     setUser(nextUser)
-    setAuth({ token: nextToken, user: nextUser })
+    setAuthToken(nextToken)
   }
 
   const logout = () => {
