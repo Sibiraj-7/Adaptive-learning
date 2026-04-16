@@ -142,6 +142,35 @@ export default function QuizAttempt() {
     }
   }
 
+  const handleReattempt = async () => {
+    if (submitting) return
+
+    setError('')
+    setLoading(true)
+    setResult(null)
+    setSubmitted(false)
+    setSubmitting(true)
+    setTabSwitchCount(0)
+
+    try {
+      const data = await api.getQuizForAttempt(quizId, assignmentId)
+      setQuiz(data.quiz)
+      const nextQuestions = data.questions || []
+      setQuestions(nextQuestions)
+
+      const init = {}
+      nextQuestions.forEach((q) => {
+        init[q._id] = ''
+      })
+      setAnswers(init)
+    } catch (e) {
+      setError(e.message || 'Could not reload quiz for reattempt')
+    } finally {
+      setSubmitting(false)
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
     const block = (e) => e.preventDefault()
 
@@ -180,9 +209,14 @@ export default function QuizAttempt() {
   }
 
   if (result) {
+    const pct = Number(result?.percentage)
+    const canReattempt = Number.isFinite(pct) && pct < 70
+
     return (
       <div className="mx-auto max-w-lg space-y-6">
-        <h1 className="text-2xl font-bold text-slate-900">Submitted</h1>
+        <h1 className="text-2xl font-bold text-slate-900">
+          {canReattempt ? 'Submitted' : 'Completed'}
+        </h1>
 
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-6 shadow-sm">
           <p className="text-slate-800">
@@ -202,13 +236,24 @@ export default function QuizAttempt() {
             </strong>
           </p>
 
-          {/* ✅ NEW: REATTEMPT BUTTON */}
-          <button
-            onClick={() => navigate(`/student/quiz/${quizId}?assignment_id=${assignmentId}`)}
-            className="mt-4 rounded-lg bg-green-600 px-4 py-2 text-white"
-          >
-            Reattempt Quiz
-          </button>
+          {!canReattempt && (
+            <button
+              type="button"
+              disabled
+              className="mt-4 rounded-lg bg-gray-400 px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm cursor-not-allowed"
+            >
+              Completed
+            </button>
+          )}
+
+          {canReattempt && (
+            <button
+              onClick={handleReattempt}
+              className="mt-4 rounded-lg bg-yellow-500 px-4 py-2 text-slate-900 font-semibold hover:bg-yellow-600"
+            >
+              Reattempt Quiz
+            </button>
+          )}
 
           <button
             type="button"
@@ -255,21 +300,35 @@ export default function QuizAttempt() {
 
             <div className="mt-4 space-y-3">
               {(q.options || []).map((opt) => (
-                <label key={opt.key}>
+                <label
+                  key={opt.key}
+                  className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 cursor-pointer hover:bg-slate-50 transition"
+                >
                   <input
                     type="radio"
+                    name={`q-${q._id}`}
+                    value={opt.key}
                     checked={answers[q._id] === opt.key}
                     onChange={() => setAnswer(q._id, opt.key)}
+                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500"
                   />
-                  {opt.text}
+
+                  <span className="text-sm text-slate-800">
+                    <strong className="mr-1">{opt.key}.</strong>
+                    {opt.text}
+                  </span>
                 </label>
               ))}
             </div>
           </fieldset>
         ))}
 
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Submitting…' : 'Submit quiz'}
+        <button
+          type="submit"
+          disabled={submitting}
+          className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:bg-indigo-700 disabled:opacity-60"
+        >
+          {submitting ? 'Submitting…' : 'Submit Quiz'}
         </button>
       </form>
     </div>

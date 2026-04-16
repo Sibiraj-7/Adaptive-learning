@@ -100,36 +100,32 @@ export default function StudentQuizzes() {
     })
   }, [topics, bestByTopicDifficulty, difficultyFilterNormalized])
 
-  const quizMetaByQuizId = useMemo(() => {
-    const map = {}
-    for (const row of assignments || []) {
-      const q = row?.quiz
-      if (!q?._id) continue
-      const topic = (q.topic || 'General').toString().trim()
-      const difficulty = (q.difficulty || 'medium').toString().toLowerCase()
-      if (!diffOrder.includes(difficulty)) continue
-      map[q._id] = { topic, difficulty }
-    }
-    return map
-  }, [assignments])
-
-  const hardCompletedByTopic = useMemo(() => {
-    const out = {}
-    const attempts = dash?.recent_attempts || []
-    for (const a of attempts) {
-      const meta = quizMetaByQuizId[a.quiz_id]
-      if (!meta) continue
-      if (meta.difficulty === 'hard') out[meta.topic] = true
-    }
-    return out
-  }, [dash, quizMetaByQuizId])
-
   const canStart = (topic, difficulty) => {
     if (difficulty === 'easy') return true
     const completion = completionByTopic?.[topic] || {}
     if (difficulty === 'medium') return Boolean(completion.easy)
     if (difficulty === 'hard') return Boolean(completion.medium)
     return false
+  }
+
+  const getLatestAttemptForQuiz = (quizId, assignmentId) => {
+    const attempts = dash?.recent_attempts || []
+    if (!quizId || !assignmentId) return null
+    return (
+      attempts.find(
+        (a) =>
+          String(a.quiz_id) === String(quizId) &&
+          String(a.assignment_id) === String(assignmentId),
+      ) || null
+    )
+  }
+
+  const getAttemptPercentage = (attempt) => {
+    if (!attempt) return null
+    const total = Number(attempt.total_score)
+    const max = Number(attempt.max_score)
+    if (!Number.isFinite(total) || !Number.isFinite(max) || max <= 0) return null
+    return (total / max) * 100
   }
 
   if (loading) {
@@ -202,14 +198,21 @@ export default function StudentQuizzes() {
                   ]
                   const hasQuiz = Boolean(entry?.quiz?._id && entry?.assignmentId)
 
-                  const completion = completionByTopic?.[topic] || {}
-                  const isCompleted =
-                    (difficulty === 'easy' && Boolean(completion.easy)) ||
-                    (difficulty === 'medium' && Boolean(completion.medium)) ||
-                    (difficulty === 'hard' &&
-                      Boolean(hardCompletedByTopic?.[topic]))
-
                   const unlocked = canStart(topic, difficulty)
+                  const quizId = entry?.quiz?._id
+                  const assignmentId = entry?.assignmentId
+                  const latestAttempt = hasQuiz
+                    ? getLatestAttemptForQuiz(quizId, assignmentId)
+                    : null
+                  const attemptPct = getAttemptPercentage(latestAttempt)
+                  const attempted = Boolean(latestAttempt)
+                  const canReattempt =
+                    attempted &&
+                    Number.isFinite(attemptPct) &&
+                    attemptPct < 70
+                  const isPassed =
+                    attempted &&
+                    (!Number.isFinite(attemptPct) || attemptPct >= 70)
 
                   const leftLabel = (
                     <p className="text-sm font-medium text-slate-800">
@@ -217,16 +220,44 @@ export default function StudentQuizzes() {
                     </p>
                   )
 
-                  if (isCompleted) {
+                  if (isPassed) {
                     return (
                       <div
                         key={difficulty}
                         className="flex items-center justify-between gap-3"
                       >
                         {leftLabel}
-                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
-                          ✓ Completed
-                        </span>
+                        <button
+                          type="button"
+                          disabled
+                          className="rounded-xl bg-gray-400 px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm cursor-not-allowed"
+                        >
+                          Completed
+                        </button>
+                      </div>
+                    )
+                  }
+
+                  if (canReattempt) {
+                    return (
+                      <div
+                        key={difficulty}
+                        className="flex items-center justify-between gap-3"
+                      >
+                        {leftLabel}
+                        <button
+                          type="button"
+                          className="rounded-xl bg-yellow-500 px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm hover:bg-yellow-600"
+                          onClick={() =>
+                            navigate(
+                              `/student/quiz/${entry.quiz._id}?assignment_id=${encodeURIComponent(
+                                entry.assignmentId,
+                              )}`
+                            )
+                          }
+                        >
+                          Reattempt
+                        </button>
                       </div>
                     )
                   }
@@ -244,12 +275,12 @@ export default function StudentQuizzes() {
                           onClick={() =>
                             navigate(
                               `/student/quiz/${entry.quiz._id}?assignment_id=${encodeURIComponent(
-                                entry.assignmentId
-                              )}`
+                                entry.assignmentId,
+                              )}`,
                             )
                           }
                         >
-                          ▶ Start Quiz
+                          Start Quiz
                         </button>
                       </div>
                     )
