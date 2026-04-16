@@ -16,6 +16,9 @@ export default function QuizAttempt() {
   const [answers, setAnswers] = useState({})
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState(null)
+  const [tabSwitchCount, setTabSwitchCount] = useState(0)
+
+  const [submitted, setSubmitted] = useState(false)
 
   useEffect(() => {
     if (!quizId || !assignmentId) {
@@ -48,19 +51,49 @@ export default function QuizAttempt() {
     }
   }, [quizId, assignmentId])
 
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        alert("⚠️ You are trying to switch tab")
+
+        setTabSwitchCount((prev) => {
+          const newCount = prev + 1
+
+          if (newCount >= 1 && !submitted) {
+            alert("Quiz auto-submitted due to tab switching")
+            handleAutoSubmit()
+          }
+
+          return newCount
+        })
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [submitted])
+
   const setAnswer = (qid, key) => {
     setAnswers((prev) => ({ ...prev, [qid]: key }))
   }
 
   const handleSubmit = async (e) => {
+    if (submitted) return   // prevent double
     e.preventDefault()
+
     const missing = questions.some((q) => !answers[q._id])
     if (missing) {
       setError('Answer every question before submitting.')
       return
     }
+
+    setSubmitted(true)  
     setError('')
     setSubmitting(true)
+
     try {
       const payload = {
         quiz_id: quizId,
@@ -70,14 +103,77 @@ export default function QuizAttempt() {
           selected_option: answers[q._id],
         })),
       }
+
       const res = await api.submitAttempt(payload)
       setResult(res)
     } catch (err) {
       setError(err.message || 'Submit failed')
+      setSubmitted(false)
     } finally {
       setSubmitting(false)
     }
   }
+
+  const handleAutoSubmit = async () => {
+    if (submitted || submitting) return
+
+    setSubmitted(true)
+
+    try {
+      setSubmitting(true)
+
+      const payload = {
+        quiz_id: quizId,
+        assignment_id: assignmentId,
+        answers: questions.map((q) => ({
+          question_id: q._id,
+          selected_option: answers[q._id] || "",
+        })),
+        tabSwitchCount,
+      }
+
+      const res = await api.submitAttempt(payload)
+      setResult(res)
+    } catch (err) {
+      console.error(err)
+      setSubmitted(false)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  useEffect(() => {
+    const block = (e) => e.preventDefault()
+
+    document.addEventListener("copy", block)
+    document.addEventListener("paste", block)
+    document.addEventListener("cut", block)
+    document.addEventListener("contextmenu", block)
+
+    return () => {
+      document.removeEventListener("copy", block)
+      document.removeEventListener("paste", block)
+      document.removeEventListener("cut", block)
+      document.removeEventListener("contextmenu", block)
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (
+        (e.ctrlKey && ["c", "v", "x", "u"].includes(e.key.toLowerCase())) ||
+        e.key === "F12"
+      ) {
+        e.preventDefault()
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown)
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [])
 
   if (loading) {
     return <p className="text-slate-500">Loading quiz…</p>
@@ -87,6 +183,7 @@ export default function QuizAttempt() {
     return (
       <div className="mx-auto max-w-lg space-y-6">
         <h1 className="text-2xl font-bold text-slate-900">Submitted</h1>
+
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-6 shadow-sm">
           <p className="text-slate-800">
             Score:{' '}
@@ -95,6 +192,7 @@ export default function QuizAttempt() {
             </strong>{' '}
             / {result.attempt?.max_score} ({result.percentage}%)
           </p>
+
           <p className="mt-3 text-slate-800">
             Recommended next topic:{' '}
             <strong>
@@ -103,6 +201,15 @@ export default function QuizAttempt() {
                 : '—'}
             </strong>
           </p>
+
+          {/* ✅ NEW: REATTEMPT BUTTON */}
+          <button
+            onClick={() => navigate(`/student/quiz/${quizId}?assignment_id=${assignmentId}`)}
+            className="mt-4 rounded-lg bg-green-600 px-4 py-2 text-white"
+          >
+            Reattempt Quiz
+          </button>
+
           <button
             type="button"
             className="mt-6 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
@@ -120,6 +227,7 @@ export default function QuizAttempt() {
       <h1 className="text-2xl font-bold text-slate-900">
         {quiz?.title || 'Quiz'}
       </h1>
+
       {error && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}
@@ -138,40 +246,29 @@ export default function QuizAttempt() {
                 {q.difficulty}
               </span>
             </legend>
+
             {q.question_text && (
               <p className="mt-3 whitespace-pre-wrap text-slate-800">
                 {q.question_text}
               </p>
             )}
-            <p className="mt-2 text-sm text-slate-500">{q.subject} — pick one answer.</p>
+
             <div className="mt-4 space-y-3">
               {(q.options || []).map((opt) => (
-                <label
-                  key={opt.key}
-                  className="flex cursor-pointer gap-3 rounded-xl border border-slate-200 p-3 hover:bg-slate-50"
-                >
+                <label key={opt.key}>
                   <input
                     type="radio"
-                    name={`q-${q._id}`}
-                    value={opt.key}
                     checked={answers[q._id] === opt.key}
                     onChange={() => setAnswer(q._id, opt.key)}
-                    className="mt-1 text-indigo-600 focus:ring-indigo-500"
                   />
-                  <span className="text-sm text-slate-800">
-                    <strong>{opt.key}.</strong> {opt.text}
-                  </span>
+                  {opt.text}
                 </label>
               ))}
             </div>
           </fieldset>
         ))}
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 hover:bg-indigo-700 disabled:opacity-60"
-        >
+        <button type="submit" disabled={submitting}>
           {submitting ? 'Submitting…' : 'Submit quiz'}
         </button>
       </form>
