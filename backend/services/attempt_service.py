@@ -104,6 +104,19 @@ def submit_attempt(student_id: str, payload: dict) -> dict[str, Any]:
     coll = db[COLLECTION_STUDENT_MASTERY]
     candidates: list[tuple[float, str]] = []
 
+    current_topic = (quiz.get("topic") or "").strip() or "General"
+    prev_mastery_frac: float | None = None
+    quiz_subject = (quiz.get("subject") or "__global__").strip()
+    existing_mastery_doc = coll.find_one({"student_id": sid, "subject": quiz_subject})
+    if existing_mastery_doc:
+        prev_map_for_reward = dict((existing_mastery_doc.get("topic_mastery") or {}))
+        prev_val = prev_map_for_reward.get(current_topic)
+        if prev_val is not None:
+            try:
+                prev_mastery_frac = float(prev_val)
+            except (TypeError, ValueError):
+                prev_mastery_frac = None
+
     for subj, unique_topics in subjects_topics.items():
         existing = coll.find_one({"student_id": sid, "subject": subj})
         prev_map = dict((existing or {}).get("topic_mastery") or {})
@@ -132,8 +145,16 @@ def submit_attempt(student_id: str, payload: dict) -> dict[str, Any]:
 
     candidates.sort(key=lambda x: (x[0], x[1]))
     recommended_global = candidates[0][1] if candidates else ""
-    current_topic = (quiz.get("topic") or "").strip() or recommended_global or "General"
-    recommendation = generate_recommendation(current_topic, total_score, max_score)
+    if not current_topic or current_topic == "General":
+        current_topic = recommended_global or "General"
+
+    recommendation = generate_recommendation(
+        current_topic,
+        total_score,
+        max_score,
+        student_id=sid,                    
+        prev_mastery_frac=prev_mastery_frac, 
+    )
 
     answers_stored = [
         {
@@ -168,4 +189,6 @@ def submit_attempt(student_id: str, payload: dict) -> dict[str, Any]:
         "percentage": round(100.0 * total_score / max_score, 2) if max_score else 0.0,
         "topic_performance": topic_perf,
         "recommended_next_topic": recommendation["recommended_next_topic"],
+        "action_taken": recommendation.get("action_taken", ""),   # NEW
+        "mastery_level": recommendation.get("mastery_level", ""), # NEW
     }
