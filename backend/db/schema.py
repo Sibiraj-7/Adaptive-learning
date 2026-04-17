@@ -1,7 +1,5 @@
 from typing import Any, TypedDict
 
-# --- Collection names ---
-
 COLLECTION_USERS = "users"
 COLLECTION_QUESTIONS = "questions"
 COLLECTION_QUIZZES = "quizzes"
@@ -9,7 +7,7 @@ COLLECTION_QUIZ_ASSIGNMENTS = "quiz_assignments"
 COLLECTION_QUIZ_ATTEMPTS = "quiz_attempts"
 COLLECTION_STUDENT_MASTERY = "student_mastery"
 COLLECTION_LEARNING_MATERIALS = "learning_materials"
-
+COLLECTION_QTABLE = "student_qtable"         
 
 
 class UserDoc(TypedDict, total=False):
@@ -18,7 +16,7 @@ class UserDoc(TypedDict, total=False):
     password_hash: str
     role: str  # "teacher" | "student"
     full_name: str
-    department: str 
+    department: str
 
 
 class QuestionOption(TypedDict):
@@ -56,7 +54,7 @@ class QuizAssignmentDoc(TypedDict, total=False):
     target_type: str
     department: str
     student_ids: list[Any]
-    due_at: Any  
+    due_at: Any
     created_at: Any
 
 
@@ -74,17 +72,26 @@ class QuizAttemptDoc(TypedDict, total=False):
     submitted_at: Any
     total_score: float
     max_score: float
-    topic_performance: dict[str, dict[str, float]]  
-    recommended_next_topic: str  
+    topic_performance: dict[str, dict[str, float]]
+    recommended_next_topic: str
+    mastery: dict[str, Any]   
 
 
 class StudentMasteryDoc(TypedDict, total=False):
     _id: Any
     student_id: Any
-    subject: str  
+    subject: str
     topic_mastery: dict[str, float] 
     updated_at: Any
     last_attempt_id: Any
+
+
+class QTableDoc(TypedDict, total=False):
+
+    _id: Any
+    student_id: Any
+    qtable: dict[str, dict[str, float]]
+    updated_at: Any
 
 
 class LearningMaterialDoc(TypedDict, total=False):
@@ -92,10 +99,10 @@ class LearningMaterialDoc(TypedDict, total=False):
     subject: str
     topic: str
     title: str
-    resource_type: str  
-    type: str 
+    resource_type: str
+    type: str
     url: str
-    file_path: str  
+    file_path: str
     difficulty: str
     department: str
     uploaded_by: str
