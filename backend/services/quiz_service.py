@@ -301,7 +301,12 @@ def list_assignments_for_student(student_id: str) -> dict[str, object]:
                 if not meta:
                     continue
                 t, d = meta
-                if t in completed_by_topic and d in ("easy", "medium", "hard"):
+                if t not in completed_by_topic or d not in ("easy", "medium", "hard"):
+                    continue
+                max_s = float(a.get("max_score") or 0)
+                total_s = float(a.get("total_score") or 0)
+                passed = max_s > 0 and (total_s / max_s) >= 0.70
+                if passed:
                     completed_by_topic[t][d] = True
 
     for a in assign_docs:
@@ -424,3 +429,4 @@ def get_quiz_for_attempt(student_id: str, quiz_id: str, assignment_id: str) -> d
         "quiz": serialize_doc(quiz),
         "questions": questions_out,
     }
+    
