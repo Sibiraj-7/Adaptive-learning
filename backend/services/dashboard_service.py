@@ -169,13 +169,13 @@ def student_dashboard(student_id: str) -> dict:
     if topic_query:
         mats = list(
             db[COLLECTION_LEARNING_MATERIALS]
-            .find({"topic": topic_query})
+            .find({"topic": {"$regex": f"^{topic_query}$", "$options": "i"}})
             .limit(15)
         )
     if not mats and weak_topics:
         alt = weak_topics[0]["key"].split(":")[-1]
         mats = list(
-            db[COLLECTION_LEARNING_MATERIALS].find({"topic": alt}).limit(15)
+            db[COLLECTION_LEARNING_MATERIALS].find({"topic": {"$regex": f"^{alt}$", "$options": "i"}}).limit(15)
         )
 
     return {
