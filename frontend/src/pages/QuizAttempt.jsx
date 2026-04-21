@@ -19,6 +19,7 @@ export default function QuizAttempt() {
   const [quizStarted, setQuizStarted] = useState(false)
 
   const hasSubmittedRef = useRef(false)
+
   const autoSubmitReasonRef = useRef(null)
 
   useEffect(() => {
@@ -51,8 +52,10 @@ export default function QuizAttempt() {
   const submitQuiz = async (answersSnapshot, isAuto = false, reason = '') => {
     if (hasSubmittedRef.current) return
     hasSubmittedRef.current = true
+
     setSubmitting(true)
     setError('')
+
     try {
       const payload = {
         quiz_id: quizId,
@@ -63,6 +66,7 @@ export default function QuizAttempt() {
         })),
       }
       const res = await api.submitAttempt(payload)
+      if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}) }
       setResult(res)
     } catch (err) {
       hasSubmittedRef.current = false
@@ -75,6 +79,7 @@ export default function QuizAttempt() {
   const handleSubmit = (e) => {
     e.preventDefault()
     if (hasSubmittedRef.current) return
+
     const missing = questions.some((q) => !answers[q._id])
     if (missing) {
       setError('Answer every question before submitting.')
@@ -85,14 +90,17 @@ export default function QuizAttempt() {
 
   useEffect(() => {
     if (!quizStarted) return
+
     const handleVisibilityChange = () => {
       if (!document.hidden) return
       if (hasSubmittedRef.current) return
       if (autoSubmitReasonRef.current) return
+
       autoSubmitReasonRef.current = 'tab-switch'
       alert('⚠️ Tab switching detected — quiz will be auto-submitted.')
       submitQuiz(answers, true, 'tab-switch')
     }
+
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [quizStarted, answers])
@@ -109,25 +117,31 @@ export default function QuizAttempt() {
 
   useEffect(() => {
     if (!quizStarted) return
+
     const handleFullscreenChange = () => {
       if (document.fullscreenElement) return
       if (hasSubmittedRef.current) return
       if (autoSubmitReasonRef.current) return
+
       autoSubmitReasonRef.current = 'fullscreen-exit'
       alert('⚠️ You exited fullscreen — quiz will be auto-submitted.')
       submitQuiz(answers, true, 'fullscreen-exit')
     }
+
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [quizStarted, answers])
 
   useEffect(() => {
     if (!quizStarted) return
+
     const block = (e) => e.preventDefault()
+
     document.addEventListener('copy', block)
     document.addEventListener('paste', block)
     document.addEventListener('cut', block)
     document.addEventListener('contextmenu', block)
+
     return () => {
       document.removeEventListener('copy', block)
       document.removeEventListener('paste', block)
@@ -138,6 +152,7 @@ export default function QuizAttempt() {
 
   useEffect(() => {
     if (!quizStarted) return
+
     const handleKeyDown = (e) => {
       if (
         (e.ctrlKey && ['c', 'v', 'x', 'u', 'a'].includes(e.key.toLowerCase())) ||
@@ -148,6 +163,7 @@ export default function QuizAttempt() {
         e.preventDefault()
       }
     }
+
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [quizStarted])
@@ -158,9 +174,10 @@ export default function QuizAttempt() {
     setLoading(true)
     setResult(null)
     setSubmitting(false)
-    hasSubmittedRef.current = false
-    autoSubmitReasonRef.current = null
+    hasSubmittedRef.current = false     // reset submission guard
+    autoSubmitReasonRef.current = null  // reset reason guard
     setQuizStarted(false)
+
     try {
       const data = await api.getQuizForAttempt(quizId, assignmentId)
       setQuiz(data.quiz)
@@ -177,7 +194,7 @@ export default function QuizAttempt() {
   }
 
   const handleStartQuiz = async () => {
-    await enterFullscreen()
+    await enterFullscreen()   // safe here — inside a click handler
     setQuizStarted(true)
   }
 
@@ -192,23 +209,31 @@ export default function QuizAttempt() {
   if (result) {
     const pct = Number(result?.percentage)
     const canReattempt = Number.isFinite(pct) && pct < 70
+
     return (
       <div className="mx-auto max-w-lg space-y-6 select-none">
         <h1 className="text-2xl font-bold text-slate-900">
           {canReattempt ? 'Submitted' : 'Completed'}
         </h1>
+
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-6 shadow-sm">
           <p className="text-slate-800">
             Score:{' '}
-            <strong className="text-emerald-800">{result.attempt?.total_score}</strong>{' '}
+            <strong className="text-emerald-800">
+              {result.attempt?.total_score}
+            </strong>{' '}
             / {result.attempt?.max_score} ({result.percentage}%)
           </p>
+
           <p className="mt-3 text-slate-800">
             Recommended next topic:{' '}
             <strong>
-              {result.recommended_next_topic ? formatTopic(result.recommended_next_topic) : '—'}
+              {result.recommended_next_topic
+                ? formatTopic(result.recommended_next_topic)
+                : '—'}
             </strong>
           </p>
+
           {!canReattempt && (
             <button
               type="button"
@@ -218,6 +243,7 @@ export default function QuizAttempt() {
               Completed
             </button>
           )}
+
           {canReattempt && (
             <button
               onClick={handleReattempt}
@@ -226,6 +252,7 @@ export default function QuizAttempt() {
               Reattempt Quiz
             </button>
           )}
+
           <button
             type="button"
             className="mt-6 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
@@ -244,18 +271,26 @@ export default function QuizAttempt() {
         <h1 className="text-2xl font-bold text-slate-900">
           {quiz?.title || 'Quiz'}
         </h1>
+
         <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm space-y-4">
-          <p className="text-slate-600 text-sm">Before you begin, please note:</p>
+          <p className="text-slate-600 text-sm">
+            Before you begin, please note:
+          </p>
+
           <ul className="text-left text-sm text-slate-700 space-y-2">
             <li>🖥️ The quiz will open in <strong>fullscreen mode</strong></li>
             <li>🚫 Tab switching will <strong>auto-submit</strong> your quiz</li>
             <li>🚫 Exiting fullscreen will <strong>auto-submit</strong> your quiz</li>
+            <li>🚫 Copy, paste and right-click are <strong>disabled</strong></li>
+            <li>🚫 Text selection is <strong>disabled</strong></li>
           </ul>
+
           {error && (
             <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
               {error}
             </p>
           )}
+
           <button
             onClick={handleStartQuiz}
             className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 hover:bg-indigo-700 transition"
@@ -272,11 +307,13 @@ export default function QuizAttempt() {
       <h1 className="text-2xl font-bold text-slate-900">
         {quiz?.title || 'Quiz'}
       </h1>
+
       {error && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}
         </p>
       )}
+
       <form
         className="space-y-6"
         onSubmit={handleSubmit}
@@ -293,11 +330,13 @@ export default function QuizAttempt() {
                 {q.difficulty}
               </span>
             </legend>
+
             {q.question_text && (
               <p className="mt-3 whitespace-pre-wrap text-slate-800">
                 {q.question_text}
               </p>
             )}
+
             <div className="mt-4 space-y-3">
               {(q.options || []).map((opt) => (
                 <label
@@ -321,6 +360,7 @@ export default function QuizAttempt() {
             </div>
           </fieldset>
         ))}
+
         <button
           type="submit"
           disabled={submitting}
