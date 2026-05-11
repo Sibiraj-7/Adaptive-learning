@@ -169,7 +169,7 @@ export default function StudentQuizzes() {
           <select
             value={difficultyFilter}
             onChange={(e) => setDifficultyFilter(e.target.value)}
-            className="mt-1 w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            className="mt-1 w-full max-w-xs cursor-pointer rounded-lg border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
           >
             <option value="All">All Stages</option>
             <option value="easy">🟢 Easy</option>
@@ -238,6 +238,8 @@ export default function StudentQuizzes() {
                     const canReattempt = attempted && Number.isFinite(attemptPct) && attemptPct < 70
                     const isPassed = attempted && (!Number.isFinite(attemptPct) || attemptPct >= 70)
 
+                    const effectiveIsPassed = isPassed || Boolean(completion[difficulty])
+
                     const stageIcon =
                       difficulty === 'easy' ? '🟢' :
                       difficulty === 'medium' ? '🟡' : '🔴'
@@ -246,7 +248,7 @@ export default function StudentQuizzes() {
                       <div
                         key={difficulty}
                         className={`flex items-center justify-between gap-3 rounded-xl p-3 border
-                          ${isPassed
+                          ${effectiveIsPassed
                             ? 'bg-emerald-50 border-emerald-100'
                             : canReattempt
                             ? 'bg-amber-50 border-amber-100'
@@ -272,7 +274,7 @@ export default function StudentQuizzes() {
                           )}
                         </div>
 
-                        {isPassed ? (
+                        {effectiveIsPassed ? (
                           <button
                             type="button"
                             disabled
@@ -283,7 +285,7 @@ export default function StudentQuizzes() {
                         ) : canReattempt ? (
                           <button
                             type="button"
-                            className="rounded-xl bg-yellow-500 px-4 py-1.5 text-xs font-semibold text-slate-900 hover:bg-yellow-600"
+                            className="cursor-pointer rounded-xl bg-yellow-500 px-4 py-1.5 text-xs font-semibold text-slate-900 hover:bg-yellow-600"
                             onClick={() =>
                               navigate(
                                 `/student/quiz/${entry.quiz._id}?assignment_id=${encodeURIComponent(entry.assignmentId)}`
@@ -295,7 +297,7 @@ export default function StudentQuizzes() {
                         ) : unlocked && hasQuiz ? (
                           <button
                             type="button"
-                            className="rounded-xl bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                            className="cursor-pointer rounded-xl bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
                             onClick={() =>
                               navigate(
                                 `/student/quiz/${entry.quiz._id}?assignment_id=${encodeURIComponent(entry.assignmentId)}`

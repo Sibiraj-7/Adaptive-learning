@@ -16,3 +16,6 @@ class Config:
     MATERIALS_MAX_UPLOAD_BYTES = int(
         os.environ.get("MATERIALS_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024))
     )
+
+    ADMIN_EMAIL    = os.environ.get("ADMIN_EMAIL", "admin@adaptivelearning.com")
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
