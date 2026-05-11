@@ -51,3 +51,25 @@ def login(email: str, password: str) -> dict[str, Any]:
     public = serialize_doc(user) or {}
     public.pop("password_hash", None)
     return {"token": token, "user": public}
+
+
+def admin_login(email: str, password: str) -> dict[str, Any]:
+    if not email or not password:
+        raise ServiceError("Email and password are required", 400)
+
+    admin_email    = getattr(Config, "ADMIN_EMAIL", "").strip().lower()
+    admin_password = getattr(Config, "ADMIN_PASSWORD", "")
+
+    if email.strip().lower() != admin_email or password != admin_password:
+        raise ServiceError("Invalid admin credentials", 401)
+
+    token = issue_token("admin", "admin")
+    return {
+        "token": token,
+        "user": {
+            "uid":      "admin",
+            "role":     "admin",
+            "email":    admin_email,
+            "full_name": "Administrator",
+        },
+    }

@@ -16,7 +16,6 @@ export function getAuth() {
   return memoryAuthToken ? { token: memoryAuthToken } : null
 }
 
-/** @deprecated Use AuthContext + setAuthToken; kept for compatibility */
 export function setAuth({ token }) {
   setAuthToken(token)
 }
@@ -82,6 +81,46 @@ export const api = {
     })
   },
 
+  adminLogin(email, password) {
+    return apiFetch('/admin/login', {
+      method: 'POST',
+      body: { email, password },
+      skipAuth: true,
+    })
+  },
+
+  adminGetStats() {
+    return apiFetch('/admin/stats')
+  },
+
+  adminGetUsers(role) {
+    return apiFetch(`/admin/users/${encodeURIComponent(role)}`)
+  },
+
+  adminCreateUser(payload) {
+    return apiFetch('/admin/users', { method: 'POST', body: payload })
+  },
+
+  adminUpdateUser(userId, payload) {
+    return apiFetch(`/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      body: payload,
+    })
+  },
+
+  adminDeleteUser(userId) {
+    return apiFetch(`/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  adminResetPassword(userId, new_password) {
+    return apiFetch(`/admin/users/${encodeURIComponent(userId)}/reset-password`, {
+      method: 'PATCH',
+      body: { new_password },
+    })
+  },
+
   getQuestions(params = {}) {
     const q = new URLSearchParams()
     if (params.subject) q.set('subject', params.subject)
@@ -107,7 +146,6 @@ export const api = {
     })
   },
 
-  /** Teacher: list own quizzes */
   getQuizzes() {
     return apiFetch('/quizzes')
   },
@@ -120,22 +158,17 @@ export const api = {
     return apiFetch('/quizzes/assign', { method: 'POST', body: payload })
   },
 
-  /** Student: assignments with quiz info */
   getAssignedQuizzes() {
     return apiFetch('/quizzes/assigned')
   },
 
-  /** Student: quiz + questions (no correct answers) */
   getQuizForAttempt(quizId, assignmentId) {
     const q = new URLSearchParams({ assignment_id: assignmentId })
     return apiFetch(`/quizzes/take/${encodeURIComponent(quizId)}?${q.toString()}`)
   },
 
-  /** Teacher: list attempts for a quiz */
   getQuizAttempts(quizId) {
-    return apiFetch(
-      `/quizzes/${encodeURIComponent(quizId)}/attempts`
-    )
+    return apiFetch(`/quizzes/${encodeURIComponent(quizId)}/attempts`)
   },
 
   submitAttempt(payload) {
@@ -150,12 +183,10 @@ export const api = {
     return apiFetch('/dashboard/teacher')
   },
 
-  /** Teacher: distinct department values from student profiles */
   getDepartments() {
     return apiFetch('/quizzes/departments')
   },
 
-  /** Materials (teacher create/list own; student list visible + recommended) */
   getMaterials(params = {}) {
     const q = new URLSearchParams()
     if (params.department) q.set('department', params.department)
@@ -202,7 +233,6 @@ export const api = {
   },
 }
 
-/** @deprecated Prefer `api.getMaterials` — matches project fetch client, not axios */
 export function getMaterials(params) {
   return api.getMaterials(params)
 }

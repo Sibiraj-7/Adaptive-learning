@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import Home from './pages/Home'
 import Login from './pages/Login'
+import AdminLayout from './pages/AdminLayout'
+import AdminDashboard from './pages/AdminDashboard'
 import TeacherLayout from './pages/TeacherLayout'
 import StudentLayout from './pages/StudentLayout'
 import TeacherDashboard from './pages/TeacherDashboard'
@@ -21,6 +23,11 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
+
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<AdminDashboard />} />
+          </Route>
+
           <Route path="/teacher" element={<TeacherLayout />}>
             <Route index element={<TeacherDashboard />} />
             <Route path="quizzes" element={<Quizzes />} />
@@ -30,6 +37,7 @@ export default function App() {
             />
             <Route path="materials" element={<Materials />} />
           </Route>
+
           <Route path="/student" element={<StudentLayout />}>
             <Route index element={<StudentDashboard />} />
             <Route path="quizzes" element={<StudentQuizzes />} />

@@ -29,6 +29,7 @@ export function AuthProvider({ children }) {
       logout,
       isTeacher: user?.role === 'teacher',
       isStudent: user?.role === 'student',
+      isAdmin:   user?.role === 'admin',
     }),
     [user, token, ready],
   )
