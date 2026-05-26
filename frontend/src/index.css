@@ -4,4 +4,8 @@
   body {
     @apply antialiased text-slate-800 bg-slate-50;
   }
+
+  button:not(:disabled) {
+    @apply cursor-pointer;
+  }
 }

@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from math import isfinite
 
@@ -169,13 +170,13 @@ def student_dashboard(student_id: str) -> dict:
     if topic_query:
         mats = list(
             db[COLLECTION_LEARNING_MATERIALS]
-            .find({"topic": {"$regex": f"^{topic_query}$", "$options": "i"}})
+            .find({"topic": {"$regex": f"^{re.escape(topic_query)}$", "$options": "i"}})
             .limit(15)
         )
     if not mats and weak_topics:
         alt = weak_topics[0]["key"].split(":")[-1]
         mats = list(
-            db[COLLECTION_LEARNING_MATERIALS].find({"topic": {"$regex": f"^{alt}$", "$options": "i"}}).limit(15)
+            db[COLLECTION_LEARNING_MATERIALS].find({"topic": {"$regex": f"^{re.escape(alt)}$", "$options": "i"}}).limit(15)
         )
 
     return {
@@ -393,3 +394,92 @@ def teacher_dashboard(teacher_id: str) -> dict:
         "topic_mastery_distribution": topic_mastery_distribution,
         "class_insights": class_insights,
     }
+
+
+def get_student_progress(teacher_id_str: str) -> list[dict]:
+    from db.schema import COLLECTION_USERS, COLLECTION_QUIZ_ASSIGNMENTS
+    from services.serialization import require_oid
+
+    tid = require_oid(teacher_id_str, "teacher_id")
+    db  = get_db()
+
+    quizzes = list(db[COLLECTION_QUIZZES].find({"teacher_id": tid}, {"_id": 1}))
+    qids = [q["_id"] for q in quizzes]
+    if not qids:
+        return []
+
+    attempts = list(
+        db[COLLECTION_QUIZ_ATTEMPTS]
+        .find({"quiz_id": {"$in": qids}})
+        .sort("submitted_at", 1)
+    )
+
+    student_ids = list({a["student_id"] for a in attempts if a.get("student_id")})
+    if not student_ids:
+        return []
+
+    users = list(db[COLLECTION_USERS].find({"_id": {"$in": student_ids}}, {"password_hash": 0}))
+    users_by_id = {u["_id"]: u for u in users}
+
+    mastery_docs = list(db[COLLECTION_STUDENT_MASTERY].find({"student_id": {"$in": student_ids}}))
+    mastery_by_sid: dict = {}
+    for doc in mastery_docs:
+        sid = doc.get("student_id")
+        if not sid:
+            continue
+        tm = doc.get("topic_mastery") or {}
+        if not mastery_by_sid.get(sid):
+            mastery_by_sid[sid] = {}
+        mastery_by_sid[sid].update({t: float(v) for t, v in tm.items() if isinstance(v, (int, float))})
+
+    attempts_by_sid: dict = {}
+    for a in attempts:
+        sid = a.get("student_id")
+        if not sid:
+            continue
+        attempts_by_sid.setdefault(sid, []).append(a)
+
+    def classify(pct):
+        if pct < 40:  return "beginner"
+        if pct < 60:  return "struggling"
+        if pct < 75:  return "improving"
+        if pct < 90:  return "consistent"
+        return "advanced"
+
+    out = []
+    for sid in student_ids:
+        user = users_by_id.get(sid) or {}
+        sid_attempts = attempts_by_sid.get(sid, [])
+        tm = mastery_by_sid.get(sid, {})
+
+        avg_mastery = round(sum(tm.values()) / len(tm) * 100, 1) if tm else 0.0
+        best_topic = max(tm.items(), key=lambda x: x[1])[0] if tm else "—"
+        mastery_state = classify(avg_mastery)
+
+        trend = "—"
+        if len(sid_attempts) >= 2:
+            def pct_of(a):
+                mx = float(a.get("max_score") or 0)
+                return (float(a.get("total_score") or 0) / mx * 100) if mx else 0
+            latest_pct = pct_of(sid_attempts[-1])
+            prev_pct   = pct_of(sid_attempts[-2])
+            delta = latest_pct - prev_pct
+            if delta >= 20:    trend = "↑↑"
+            elif delta >= 5:   trend = "↑"
+            elif delta >= -5:  trend = "→"
+            elif delta >= -20: trend = "↓"
+            else:              trend = "↓↓"
+
+        out.append({
+            "student_id":    str(sid),
+            "full_name":     user.get("full_name") or user.get("email") or str(sid),
+            "department":    user.get("department") or "—",
+            "mastery_state": mastery_state,
+            "avg_mastery":   avg_mastery,
+            "best_topic":    best_topic,
+            "total_attempts": len(sid_attempts),
+            "trend":         trend,
+        })
+
+    out.sort(key=lambda x: x["avg_mastery"], reverse=True)
+    return out

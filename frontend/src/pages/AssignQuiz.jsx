@@ -4,7 +4,7 @@ import { api } from '../services/api'
 const inputClass =
   'mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20'
 
-export default function AssignQuiz({ onDone }) {
+export default function AssignQuiz({ onDone, selectedQuizId }) {
   const [quizzes, setQuizzes] = useState([])
   const [quizId, setQuizId] = useState('')
   const [targetType, setTargetType] = useState('department')
@@ -28,7 +28,11 @@ export default function AssignQuiz({ onDone }) {
         if (!cancelled) {
           const list = res.quizzes || []
           setQuizzes(list)
-          if (list[0]) setQuizId(list[0]._id)
+          if (selectedQuizId) {
+            setQuizId(selectedQuizId)
+          } else if (list[0]) {
+            setQuizId(list[0]._id)
+          }
           setDepartments(deptRes.departments || [])
         }
       } catch (e) {
@@ -122,7 +126,7 @@ export default function AssignQuiz({ onDone }) {
             ) : (
               quizzes.map((q) => (
                 <option key={q._id} value={q._id}>
-                  {q.title}
+                  {q.title} — {q.difficulty}
                 </option>
               ))
             )}

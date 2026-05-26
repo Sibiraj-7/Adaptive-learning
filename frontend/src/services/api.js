@@ -183,6 +183,10 @@ export const api = {
     return apiFetch('/dashboard/teacher')
   },
 
+  getStudentProgress() {
+    return apiFetch('/dashboard/teacher/students')
+  },
+
   getDepartments() {
     return apiFetch('/quizzes/departments')
   },

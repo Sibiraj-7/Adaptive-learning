@@ -224,7 +224,6 @@ export default function QuizAttempt() {
             </strong>{' '}
             / {result.attempt?.max_score} ({result.percentage}%)
           </p>
-
           <p className="mt-3 text-slate-800">
             Recommended next topic:{' '}
             <strong>
@@ -234,32 +233,32 @@ export default function QuizAttempt() {
             </strong>
           </p>
 
-          {!canReattempt && (
+          <div className="mt-6 flex gap-4">
+            {!canReattempt ? (
+              <button
+                type="button"
+                disabled
+                className="rounded-lg bg-gray-400 px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm cursor-not-allowed"
+              >
+                Completed
+              </button>
+            ) : (
+              <button
+                onClick={handleReattempt}
+                className="rounded-lg bg-yellow-500 px-4 py-2 text-slate-900 font-semibold hover:bg-yellow-600"
+              >
+                Reattempt Quiz
+              </button>
+            )}
+
             <button
               type="button"
-              disabled
-              className="mt-4 rounded-lg bg-gray-400 px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm cursor-not-allowed"
+              className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+              onClick={() => navigate('/student')}
             >
-              Completed
+              Back to dashboard
             </button>
-          )}
-
-          {canReattempt && (
-            <button
-              onClick={handleReattempt}
-              className="mt-4 rounded-lg bg-yellow-500 px-4 py-2 text-slate-900 font-semibold hover:bg-yellow-600"
-            >
-              Reattempt Quiz
-            </button>
-          )}
-
-          <button
-            type="button"
-            className="mt-6 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
-            onClick={() => navigate('/student')}
-          >
-            Back to dashboard
-          </button>
+          </div>
         </div>
       </div>
     )

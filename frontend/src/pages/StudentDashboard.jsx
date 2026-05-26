@@ -22,9 +22,36 @@ export default function StudentDashboard() {
   }
 
   const stateMeta = {
-    low:    { color: 'text-rose-700',    bg: 'bg-rose-50',    border: 'border-rose-200',    desc: 'Your mastery is low — the AI is sending you back to strengthen the basics.' },
-    medium: { color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200',   desc: 'You have a medium grasp — the AI wants you to practise more before advancing.' },
-    high:   { color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', desc: 'Great mastery! The AI is pushing you to the next level topic.' },
+    beginner: {
+      color: 'text-rose-700',
+      bg: 'bg-rose-50',
+      border: 'border-rose-200',
+      desc: 'The student is at beginner level and needs stronger foundational learning.',
+    },
+    struggling: {
+      color: 'text-orange-700',
+      bg: 'bg-orange-50',
+      border: 'border-orange-200',
+      desc: 'The student is struggling and requires additional guided practice.',
+    },
+    improving: {
+      color: 'text-amber-700',
+      bg: 'bg-amber-50',
+      border: 'border-amber-200',
+      desc: 'The student is improving steadily with moderate topic mastery.',
+    },
+    consistent: {
+      color: 'text-blue-700',
+      bg: 'bg-blue-50',
+      border: 'border-blue-200',
+      desc: 'The student demonstrates consistent understanding and performance.',
+    },
+    advanced: {
+      color: 'text-emerald-700',
+      bg: 'bg-emerald-50',
+      border: 'border-emerald-200',
+      desc: 'The student has achieved advanced mastery and is ready for progression.',
+    },
   }
 
   const getLatestAttemptForQuiz = (quizId, assignmentId) => {
@@ -68,11 +95,16 @@ export default function StudentDashboard() {
   }, [])
 
   const weak = dash?.weak_topics || []
-  const rec = dash?.recommended_next_topic || ''
+  const rec  = dash?.recommended_next_topic || ''
 
   const latestAttempt = useMemo(() => {
     const attempts = dash?.recent_attempts || []
     return attempts.length > 0 ? attempts[0] : null
+  }, [dash])
+
+  const prevAttempt = useMemo(() => {
+    const attempts = dash?.recent_attempts || []
+    return attempts.length > 1 ? attempts[1] : null
   }, [dash])
 
   const aiDecision = useMemo(() => {
@@ -85,6 +117,21 @@ export default function StudentDashboard() {
       topic:        latestAttempt.recommended_next_topic || '',
     }
   }, [latestAttempt])
+
+  const trend = useMemo(() => {
+    if (!latestAttempt || !prevAttempt) return null
+    const currMax = Number(latestAttempt.max_score)
+    const prevMax = Number(prevAttempt.max_score)
+    if (!currMax || !prevMax) return null
+    const currPct = (Number(latestAttempt.total_score) / currMax) * 100
+    const prevPct = (Number(prevAttempt.total_score) / prevMax) * 100
+    const delta = currPct - prevPct
+    if (delta >= 20)  return { arrow: '↑↑', label: 'Big improvement',  color: 'text-emerald-600', bg: 'bg-emerald-50' }
+    if (delta >= 5)   return { arrow: '↑',  label: 'Improving',        color: 'text-emerald-600', bg: 'bg-emerald-50' }
+    if (delta >= -5)  return { arrow: '→',  label: 'Consistent',       color: 'text-blue-600',    bg: 'bg-blue-50' }
+    if (delta >= -20) return { arrow: '↓',  label: 'Slightly declined', color: 'text-amber-600',   bg: 'bg-amber-50' }
+    return             { arrow: '↓↓', label: 'Needs attention',  color: 'text-rose-600',    bg: 'bg-rose-50' }
+  }, [latestAttempt, prevAttempt])
 
   const bestByTopicDifficulty = useMemo(() => {
     const map = {}
@@ -144,7 +191,7 @@ export default function StudentDashboard() {
 
   if (loading) return <p className="text-slate-500">Loading…</p>
 
-  const sInfo = aiDecision ? (stateMeta[aiDecision.masteryLevel] || stateMeta.low) : null
+  const sInfo = aiDecision ? (stateMeta[aiDecision.masteryLevel] || stateMeta.beginner) : null
   const aInfo = aiDecision ? (actionMeta[aiDecision.action] || null) : null
 
   return (
@@ -169,8 +216,14 @@ export default function StudentDashboard() {
           <div className="flex items-center gap-2 mb-3">
             <span className="text-lg">🤖</span>
             <h2 className="text-base font-semibold text-slate-900">AI Decision</h2>
+            {trend && (
+              <span className={`ml-2 rounded-full px-2.5 py-0.5 text-xs font-bold ${trend.bg} ${trend.color}`}>
+                {trend.arrow} {trend.label}
+              </span>
+            )}
             <span className="ml-auto text-xs text-slate-500">Based on your last attempt</span>
           </div>
+
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="rounded-xl bg-white/70 p-3 text-center shadow-sm">
               <p className="text-xs text-slate-500 mb-1">Mastery State</p>
@@ -178,9 +231,14 @@ export default function StudentDashboard() {
             </div>
             <div className="rounded-xl bg-white/70 p-3 text-center shadow-sm">
               <p className="text-xs text-slate-500 mb-1">Mastery %</p>
-              <p className={`text-sm font-bold ${sInfo.color}`}>
-                {aiDecision.masteryPct != null ? `${aiDecision.masteryPct}%` : '—'}
-              </p>
+              <div className="flex items-center justify-center gap-1">
+                <p className={`text-sm font-bold ${sInfo.color}`}>
+                  {aiDecision.masteryPct != null ? `${aiDecision.masteryPct}%` : '—'}
+                </p>
+                {trend && (
+                  <span className={`text-base font-bold ${trend.color}`}>{trend.arrow}</span>
+                )}
+              </div>
             </div>
             <div className="rounded-xl bg-white/70 p-3 text-center shadow-sm">
               <p className="text-xs text-slate-500 mb-1">AI Recommendation</p>
@@ -266,20 +324,23 @@ export default function StudentDashboard() {
                       const attempted = Boolean(latestAttemptForQuiz)
                       const canReattempt = attempted && Number.isFinite(attemptPct) && attemptPct < 70
                       const isPassed = attempted && (!Number.isFinite(attemptPct) || attemptPct >= 70)
+                      const effectiveIsPassed = isPassed || Boolean(completion[difficulty])
                       return (
                         <div key={difficulty} className="flex items-center justify-between gap-3">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs">{isPassed ? '✅' : unlocked ? '🔓' : '🔒'}</span>
+                            <span className="text-xs">{effectiveIsPassed ? '✅' : unlocked ? '🔓' : '🔒'}</span>
                             <p className="text-sm font-medium text-slate-800">{diffLabel[difficulty]}</p>
                             {attempted && attemptPct != null && (
                               <span className="text-xs text-slate-400">({Math.round(attemptPct)}%)</span>
                             )}
                           </div>
-                          {isPassed ? (
-                            <button disabled className="rounded-xl bg-gray-400 px-4 py-1.5 text-xs font-semibold text-slate-900 cursor-not-allowed">Completed</button>
+                          {effectiveIsPassed ? (
+                            <button disabled className="rounded-xl bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white cursor-not-allowed">
+                              ✅ Completed
+                            </button>
                           ) : canReattempt ? (
                             <button
-                              className="rounded-xl bg-yellow-500 px-4 py-1.5 text-xs font-semibold text-slate-900 hover:bg-yellow-600"
+                              className="cursor-pointer rounded-xl bg-yellow-500 px-4 py-1.5 text-xs font-semibold text-slate-900 hover:bg-yellow-600"
                               onClick={() => navigate(`/student/quiz/${entry.quiz._id}?assignment_id=${encodeURIComponent(entry.assignmentId)}`)}
                             >Reattempt</button>
                           ) : !unlocked ? (
@@ -288,7 +349,7 @@ export default function StudentDashboard() {
                             <span className="text-xs text-slate-400">No quiz</span>
                           ) : (
                             <button
-                              className="rounded-xl bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                              className="cursor-pointer rounded-xl bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
                               onClick={() => navigate(`/student/quiz/${entry.quiz._id}?assignment_id=${encodeURIComponent(entry.assignmentId)}`)}
                             >Start</button>
                           )}
@@ -351,20 +412,39 @@ export default function StudentDashboard() {
                 <tr className="border-b border-slate-200 text-slate-600">
                   <th className="pb-3 pr-4 font-semibold">Submitted</th>
                   <th className="pb-3 pr-4 font-semibold">Score</th>
+                  <th className="pb-3 pr-4 font-semibold">Trend</th>
                   <th className="pb-3 pr-4 font-semibold">AI Recommendation</th>
                   <th className="pb-3 font-semibold">Recommended topic</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {(dash?.recent_attempts || []).map((a, idx) => {
-                  const act = a.mastery?.action_taken
+                {(dash?.recent_attempts || []).map((a, idx, arr) => {
+                  const act  = a.mastery?.action_taken
                   const meta = act && actionMeta[act] ? actionMeta[act] : null
+                  const currPct = a.max_score ? (a.total_score / a.max_score) * 100 : null
+                  const nextA   = arr[idx + 1]
+                  const prevPct = nextA && nextA.max_score ? (nextA.total_score / nextA.max_score) * 100 : null
+                  let rowTrend = null
+                  if (currPct != null && prevPct != null) {
+                    const d = currPct - prevPct
+                    if (d >= 20)      rowTrend = { arrow: '↑↑', color: 'text-emerald-600' }
+                    else if (d >= 5)  rowTrend = { arrow: '↑',  color: 'text-emerald-600' }
+                    else if (d >= -5) rowTrend = { arrow: '→',  color: 'text-blue-600' }
+                    else if (d >= -20)rowTrend = { arrow: '↓',  color: 'text-amber-600' }
+                    else              rowTrend = { arrow: '↓↓', color: 'text-rose-600' }
+                  }
                   return (
                     <tr key={idx} className="text-slate-800">
                       <td className="py-3 pr-4">
                         {a.submitted_at ? new Date(a.submitted_at).toLocaleString() : '—'}
                       </td>
                       <td className="py-3 pr-4">{a.total_score} / {a.max_score}</td>
+                      <td className="py-3 pr-4">
+                        {rowTrend
+                          ? <span className={`text-base font-bold ${rowTrend.color}`}>{rowTrend.arrow}</span>
+                          : <span className="text-slate-400 text-xs">—</span>
+                        }
+                      </td>
                       <td className="py-3 pr-4">
                         {meta
                           ? <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${meta.bg} ${meta.color}`}>{meta.icon} {meta.label}</span>
