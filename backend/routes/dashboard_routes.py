@@ -25,3 +25,10 @@ def get_teacher_dashboard():
     except ServiceError as exc:
         return jsonify({"error": exc.message}), exc.status
     return jsonify(data), 200
+
+
+@dashboard_bp.get("/teacher/students")
+@auth_required(roles=["teacher"])
+def get_student_progress():
+    from services.dashboard_service import get_student_progress
+    return jsonify({"students": get_student_progress(g.user_id)}), 200

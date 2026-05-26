@@ -185,12 +185,39 @@ def assign_quiz(teacher_id: str, payload: dict) -> dict:
     return serialize_doc(doc) or {}
 
 
-def _student_may_take(assignment: dict, student: dict | None) -> bool:
+def _normalize_department(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    words = raw.split()
+    if len(words) == 1:
+        return raw.upper()
+    abbr = "".join(w[0].upper() for w in words if w)
+    return abbr
+
+
+def _student_may_take(
+    assignment: dict,
+    student: dict | None
+) -> bool:
+
     if not student:
         return False
+
     if assignment.get("target_type") == "department":
-        return (student.get("department") or "") == (assignment.get("department") or "")
+
+        student_dept = _normalize_department(
+            student.get("department")
+        )
+
+        assignment_dept = _normalize_department(
+            assignment.get("department")
+        )
+
+        return student_dept == assignment_dept
+
     sids = assignment.get("student_ids") or []
+
     return student["_id"] in sids
 
 
@@ -221,14 +248,30 @@ def list_assignments_for_student(student_id: str) -> dict[str, object]:
     if not student:
         raise ServiceError("Student not found", 403)
 
-    dept = student.get("department") or ""
-    filt = {
-        "$or": [
-            {"target_type": "department", "department": dept},
-            {"target_type": "students", "student_ids": sid},
-        ]
-    }
-    assign_docs = list(db[COLLECTION_QUIZ_ASSIGNMENTS].find(filt).sort("created_at", -1))
+    dept = _normalize_department(
+        student.get("department")
+    )
+    all_assignments = list(
+        db[COLLECTION_QUIZ_ASSIGNMENTS].find().sort("created_at", -1)
+    )
+
+    assign_docs = []
+
+    for a in all_assignments:
+
+        if a.get("target_type") == "department":
+
+            assignment_dept = _normalize_department(
+                a.get("department")
+            )
+
+            if assignment_dept == dept:
+                assign_docs.append(a)
+
+        elif a.get("target_type") == "students":
+
+            if sid in (a.get("student_ids") or []):
+                assign_docs.append(a)
     out: list[dict] = []
 
     quiz_ids = [a.get("quiz_id") for a in assign_docs if a.get("quiz_id")]

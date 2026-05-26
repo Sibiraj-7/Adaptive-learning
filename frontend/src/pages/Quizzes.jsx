@@ -114,7 +114,7 @@ export default function Quizzes() {
   }
 
   if (mode === 'assign') {
-    return <AssignQuiz onDone={handleDoneAssign} />
+    return <AssignQuiz onDone={handleDoneAssign} selectedQuizId={selectedQuizId} />
   }
 
   if (loading) {
@@ -302,7 +302,10 @@ export default function Quizzes() {
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => setMode('assign')}
+                        onClick={() => { 
+                          setSelectedQuizId(q._id) 
+                          setMode('assign')
+                        }}
                         className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
                       >
                         Assign Quiz

@@ -24,9 +24,30 @@ ACTION_THRESHOLDS = {
 COLLECTION_QTABLE = "student_qtable"
 
 ALLOWED_ACTIONS = {
-    "low":    ["revisit", "practice"],
-    "medium": ["revisit", "practice", "advance"],
-    "high":   ["practice", "advance"],
+
+    "beginner": [
+        "revisit",
+        "practice"
+    ],
+
+    "struggling": [
+        "revisit",
+        "practice"
+    ],
+
+    "improving": [
+        "practice",
+        "advance"
+    ],
+
+    "consistent": [
+        "practice",
+        "advance"
+    ],
+
+    "advanced": [
+        "advance"
+    ],
 }
 
 
@@ -40,21 +61,41 @@ def calculate_mastery(score: float | int, max_score: float | int) -> float:
     return round(max(0.0, min(100.0, (s / m) * 100.0)), 2)
 
 
-def classify_mastery(mastery: float | int) -> str:
-    try:
-        v = float(mastery)
-    except (TypeError, ValueError):
-        v = 0.0
-    if v >= 80.0:
-        return "high"
-    if v >= 50.0:
-        return "medium"
-    return "low"
+def classify_mastery(
+    mastery_pct: float,
+    improvement_rate: float = 0
+) -> str:
+
+    mastery_pct = float(mastery_pct)
+
+    if mastery_pct < 40:
+        return "beginner"
+
+    if mastery_pct < 60:
+        return "struggling"
+
+    if mastery_pct < 75:
+        return "improving"
+
+    if mastery_pct < 90:
+        return "consistent"
+
+    return "advanced"
 
 
 def _default_qtable() -> dict[str, dict[str, float]]:
-    return {state: {action: 0.0 for action in ACTIONS}
-            for state in ("low", "medium", "high")}
+    return {
+        state: {
+            action: 0.0 for action in ACTIONS
+        }
+        for state in (
+            "beginner",
+            "struggling",
+            "improving",
+            "consistent",
+            "advanced",
+        )
+    }
 
 
 def _load_qtable(db, student_id: ObjectId) -> dict[str, dict[str, float]]:
@@ -76,7 +117,6 @@ def _save_qtable(db, student_id: ObjectId, qtable: dict) -> None:
 
 
 def _choose_action(qtable: dict, state: str) -> str:
-    """Epsilon-greedy — only picks from ALLOWED_ACTIONS for this state."""
     allowed = ALLOWED_ACTIONS.get(state, ACTIONS)
     if random.random() < EPSILON:
         return random.choice(allowed)           # explore within allowed only
@@ -96,10 +136,39 @@ def _update_qtable(qtable, state, action, reward, next_state) -> dict:
     return qtable
 
 
-def _compute_reward(prev_mastery_frac: float | None, new_mastery_frac: float) -> float:
+def _compute_reward(
+    prev_mastery_frac: float | None,
+    new_mastery_frac: float,
+    difficulty: str = "medium",
+    completed: bool = True,
+) -> float:
+
     if prev_mastery_frac is None:
-        return 0.1
-    return round(max(-1.0, min(1.0, (new_mastery_frac - prev_mastery_frac) * 2.0)), 4)
+        return 0.2
+
+    improvement = new_mastery_frac - prev_mastery_frac
+
+    difficulty_bonus = {
+        "easy": 0.05,
+        "medium": 0.10,
+        "hard": 0.20,
+    }.get(difficulty, 0.1)
+
+    completion_bonus = 0.1 if completed else -0.1
+
+    consistency_bonus = 0.1 if improvement > 0 else -0.05
+
+    reward = (
+        improvement * 0.6 +
+        difficulty_bonus +
+        completion_bonus +
+        consistency_bonus
+    )
+
+    return round(
+        max(-1.0, min(1.0, reward)),
+        4
+    )
 
 
 def _pick_topic_for_action(action: str, topic_mastery: dict[str, float], current_topic: str) -> str:
@@ -146,7 +215,12 @@ def generate_recommendation(
         try:
             db     = get_db()
             qtable = _load_qtable(db, student_id)
-            reward = _compute_reward(prev_mastery_frac, mastery_frac)
+            reward = _compute_reward(
+                prev_mastery_frac,
+                mastery_frac,
+                difficulty="medium",
+                completed=True,
+            )
             prev_state = (
                 classify_mastery((prev_mastery_frac or 0.0) * 100.0)
                 if prev_mastery_frac is not None else mastery_level
