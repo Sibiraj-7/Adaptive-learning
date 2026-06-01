@@ -7,7 +7,13 @@ from typing import Any
 from bson import ObjectId
 
 from db.connection import get_db
-from db.schema import COLLECTION_STUDENT_MASTERY
+from db.schema import (
+    COLLECTION_QUIZ_ASSIGNMENTS,
+    COLLECTION_QUIZ_ATTEMPTS,
+    COLLECTION_QUIZZES,
+    COLLECTION_STUDENT_MASTERY,
+    COLLECTION_USERS,
+)
 
 ALPHA   = 0.3
 GAMMA   = 0.8
@@ -15,7 +21,7 @@ EPSILON = 0.05
 
 ACTIONS = ["revisit", "practice", "advance"]
 
-ACTION_THRESHOLDS = {
+ACTION_THRESHOLDS: dict[str, tuple[float, float]] = {
     "revisit":  (0.0,  0.5),
     "practice": (0.5,  0.8),
     "advance":  (0.8,  1.01),
@@ -23,31 +29,12 @@ ACTION_THRESHOLDS = {
 
 COLLECTION_QTABLE = "student_qtable"
 
-ALLOWED_ACTIONS = {
-
-    "beginner": [
-        "revisit",
-        "practice"
-    ],
-
-    "struggling": [
-        "revisit",
-        "practice"
-    ],
-
-    "improving": [
-        "practice",
-        "advance"
-    ],
-
-    "consistent": [
-        "practice",
-        "advance"
-    ],
-
-    "advanced": [
-        "advance"
-    ],
+ALLOWED_ACTIONS: dict[str, list[str]] = {
+    "beginner":   ["revisit", "practice"],
+    "struggling": ["revisit", "practice"],
+    "improving":  ["practice", "advance"],
+    "consistent": ["practice", "advance"],
+    "advanced":   ["advance"],
 }
 
 
@@ -61,40 +48,23 @@ def calculate_mastery(score: float | int, max_score: float | int) -> float:
     return round(max(0.0, min(100.0, (s / m) * 100.0)), 2)
 
 
-def classify_mastery(
-    mastery_pct: float,
-    improvement_rate: float = 0
-) -> str:
-
-    mastery_pct = float(mastery_pct)
-
-    if mastery_pct < 40:
+def classify_mastery(mastery_pct: float) -> str:
+    pct = float(mastery_pct)
+    if pct < 40:
         return "beginner"
-
-    if mastery_pct < 60:
+    if pct < 60:
         return "struggling"
-
-    if mastery_pct < 75:
+    if pct < 75:
         return "improving"
-
-    if mastery_pct < 90:
+    if pct < 90:
         return "consistent"
-
     return "advanced"
 
 
 def _default_qtable() -> dict[str, dict[str, float]]:
     return {
-        state: {
-            action: 0.0 for action in ACTIONS
-        }
-        for state in (
-            "beginner",
-            "struggling",
-            "improving",
-            "consistent",
-            "advanced",
-        )
+        state: {action: 0.0 for action in ACTIONS}
+        for state in ALLOWED_ACTIONS
     }
 
 
@@ -119,9 +89,9 @@ def _save_qtable(db, student_id: ObjectId, qtable: dict) -> None:
 def _choose_action(qtable: dict, state: str) -> str:
     allowed = ALLOWED_ACTIONS.get(state, ACTIONS)
     if random.random() < EPSILON:
-        return random.choice(allowed)           # explore within allowed only
+        return random.choice(allowed)
     q_row = qtable.get(state, {})
-    return max(allowed, key=lambda a: q_row.get(a, 0.0))   # exploit best allowed
+    return max(allowed, key=lambda a: q_row.get(a, 0.0))
 
 
 def _update_qtable(qtable, state, action, reward, next_state) -> dict:
@@ -165,22 +135,92 @@ def _compute_reward(
         consistency_bonus
     )
 
-    return round(
-        max(-1.0, min(1.0, reward)),
-        4
-    )
+    return round(max(-1.0, min(1.0, reward)), 4)
 
 
-def _pick_topic_for_action(action: str, topic_mastery: dict[str, float], current_topic: str) -> str:
+def _get_assigned_quiz_topics(db, student_id: ObjectId) -> list[dict]:
+    student = db[COLLECTION_USERS].find_one({"_id": student_id})
+    dept = (student.get("department") or "").strip() if student else ""
+    dept_upper = dept.upper()
+
+    assignments = list(db[COLLECTION_QUIZ_ASSIGNMENTS].find({
+        "$or": [
+            {"target_type": "department", "department": dept_upper},
+            {"target_type": "department", "department": dept},
+            {"target_type": "students",   "student_ids": student_id},
+        ]
+    }))
+
+    if not assignments:
+        return []
+
+    quiz_ids = list({a["quiz_id"] for a in assignments if a.get("quiz_id")})
+    if not quiz_ids:
+        return []
+
+    quizzes = list(db[COLLECTION_QUIZZES].find({"_id": {"$in": quiz_ids}}))
+
+    attempted_quiz_ids: set[ObjectId] = {
+        a["quiz_id"]
+        for a in db[COLLECTION_QUIZ_ATTEMPTS].find(
+            {"student_id": student_id, "quiz_id": {"$in": quiz_ids}},
+            {"quiz_id": 1},
+        )
+        if a.get("quiz_id")
+    }
+
+    difficulty_order = {"easy": 0, "medium": 1, "hard": 2}
+
+    rows: list[dict] = []
+    for q in quizzes:
+        topic = (q.get("topic") or "").strip()
+        subject = (q.get("subject") or "").strip()
+        difficulty = (q.get("difficulty") or "medium").strip().lower()
+        if not topic:
+            continue
+        rows.append({
+            "quiz_id":     q["_id"],
+            "topic":       topic,
+            "subject":     subject,
+            "difficulty":  difficulty,
+            "attempted":   q["_id"] in attempted_quiz_ids,
+            "_diff_order": difficulty_order.get(difficulty, 1),
+        })
+
+    rows.sort(key=lambda r: (r["attempted"], r["_diff_order"], r["topic"]))
+    return rows
+
+
+def _pick_next_topic(
+    action: str,
+    assigned_rows: list[dict],
+    topic_mastery: dict[str, float],
+    current_topic: str,
+) -> str | None:
+    unattempted = [r for r in assigned_rows if not r["attempted"]]
+
+    if not unattempted:
+        return None
+
     lo, hi = ACTION_THRESHOLDS[action]
-    candidates = [(t, m) for t, m in topic_mastery.items() if lo <= m < hi]
+
+    def mastery_of(row: dict) -> float:
+        return topic_mastery.get(row["topic"], 0.0)
+
+    candidates = [r for r in unattempted if lo <= mastery_of(r) < hi]
+
     if not candidates:
-        candidates = list(topic_mastery.items())
-    if not candidates:
-        return current_topic or "General"
+        candidates = unattempted
+
     if action == "revisit":
-        return min(candidates, key=lambda x: x[1])[0]
-    return max(candidates, key=lambda x: x[1])[0]
+        return min(candidates, key=lambda r: (mastery_of(r), r["_diff_order"], r["topic"]))["topic"]
+
+    if action == "practice":
+        return max(candidates, key=lambda r: (mastery_of(r), -r["_diff_order"]))["topic"]
+
+    not_started = [r for r in candidates if mastery_of(r) == 0.0]
+    pool = not_started if not_started else candidates
+    return min(pool, key=lambda r: (r["_diff_order"], r["topic"]))["topic"]
 
 
 def generate_recommendation(
@@ -189,36 +229,38 @@ def generate_recommendation(
     max_score: float | int,
     student_id: Any = None,
     prev_mastery_frac: float | None = None,
+    quiz_difficulty: str = "medium",
 ) -> dict[str, Any]:
 
     mastery_pct   = calculate_mastery(score, max_score)
     mastery_level = classify_mastery(mastery_pct)
     mastery_frac  = mastery_pct / 100.0
 
-    topic_mastery: dict[str, float] = {}
+    action    = ALLOWED_ACTIONS.get(mastery_level, ACTIONS)[0]
+    q_values  = {a: 0.0 for a in ACTIONS}
+    recommended_topic: str | None = current_topic
+    all_done  = False
+
     if student_id is not None:
         try:
-            db = get_db()
-            for doc in db[COLLECTION_STUDENT_MASTERY].find({"student_id": student_id}):
+            sid = student_id if isinstance(student_id, ObjectId) else ObjectId(str(student_id))
+            db  = get_db()
+
+            topic_mastery: dict[str, float] = {}
+            for doc in db[COLLECTION_STUDENT_MASTERY].find({"student_id": sid}):
                 for topic, val in (doc.get("topic_mastery") or {}).items():
                     try:
                         topic_mastery[topic] = float(val)
                     except (TypeError, ValueError):
                         continue
-        except Exception:
-            pass
 
-    action   = ALLOWED_ACTIONS.get(mastery_level, ACTIONS)[0]
-    q_values = {a: 0.0 for a in ACTIONS}
+            topic_mastery[current_topic] = mastery_frac
 
-    if student_id is not None:
-        try:
-            db     = get_db()
-            qtable = _load_qtable(db, student_id)
+            qtable = _load_qtable(db, sid)
             reward = _compute_reward(
                 prev_mastery_frac,
                 mastery_frac,
-                difficulty="medium",
+                difficulty=quiz_difficulty,
                 completed=True,
             )
             prev_state = (
@@ -227,17 +269,21 @@ def generate_recommendation(
             )
             action = _choose_action(qtable, mastery_level)
             qtable = _update_qtable(qtable, prev_state, action, reward, mastery_level)
-            _save_qtable(db, student_id, qtable)
+            _save_qtable(db, sid, qtable)
             q_values = qtable.get(mastery_level, q_values)
+
+            assigned_rows = _get_assigned_quiz_topics(db, sid)
+            recommended_topic = _pick_next_topic(action, assigned_rows, topic_mastery, current_topic)
+            all_done = recommended_topic is None
+
         except Exception:
             pass
-
-    recommended_topic = _pick_topic_for_action(action, topic_mastery, current_topic)
 
     return {
         "mastery_percentage":     mastery_pct,
         "mastery_level":          mastery_level,
         "recommended_next_topic": recommended_topic,
+        "all_quizzes_completed":  all_done,
         "action_taken":           action,
         "q_values":               q_values,
     }

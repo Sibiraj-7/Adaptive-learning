@@ -6,23 +6,39 @@ from db.connection import get_db
 from db.schema import (
     COLLECTION_LEARNING_MATERIALS,
     COLLECTION_QUIZ_ATTEMPTS,
+    COLLECTION_QUIZ_ASSIGNMENTS,
     COLLECTION_QUIZZES,
     COLLECTION_STUDENT_MASTERY,
+    COLLECTION_USERS,
 )
 from services.serialization import require_oid, serialize_doc, serialize_docs
+
+
+def _split_mastery_key(k: str) -> tuple[str, str]:
+    if not k or not isinstance(k, str):
+        return ("", k)
+    if "::" in k:
+        parts = k.split("::", 1)
+        return (parts[0], parts[1])
+    if ":" in k:
+        parts = k.split(":", 1)
+        return (parts[0], parts[1])
+    return ("", k)
+
+
+def _split_subject_topic(label: str) -> tuple[str, str]:
+    return _split_mastery_key(label)
 
 
 def get_topic_mastery_distribution(difficult_rows: list[dict]) -> list[dict]:
     out: list[dict] = []
     for r in difficult_rows or []:
-        out.append(
-            {
-                "subject": r.get("subject") or "",
-                "topic": r.get("topic") or r.get("topic_name") or "",
-                "difficulty": r.get("difficulty") or "",
-                "accuracy": r.get("avg_accuracy"),
-            }
-        )
+        out.append({
+            "subject":    r.get("subject") or "",
+            "topic":      r.get("topic") or r.get("topic_name") or "",
+            "difficulty": r.get("difficulty") or "",
+            "accuracy":   r.get("avg_accuracy"),
+        })
     return out
 
 
@@ -32,13 +48,12 @@ def get_class_insights(
     difficult_rows: list[dict],
     topic_accuracy_by_key: dict[str, float] | None = None,
 ) -> dict:
-
     students_attempted = len(student_ids)
     if students_attempted == 0:
         return {
-            "students_attempted": 0,
-            "topics_completed": 0,
-            "average_mastery": None,
+            "students_attempted":   0,
+            "topics_completed":     0,
+            "average_mastery":      None,
             "most_difficult_topic": None,
         }
 
@@ -46,12 +61,10 @@ def get_class_insights(
         topic_keys = sorted(topic_accuracy_by_key.keys())
         most_difficult_topic = (
             min(topic_accuracy_by_key.items(), key=lambda x: x[1])[0]
-            if topic_accuracy_by_key
-            else None
+            if topic_accuracy_by_key else None
         )
     else:
         topic_keys = sorted({r.get("topic_key") for r in difficult_rows if r.get("topic_key")})
-
         acc_by_topic: defaultdict[str, list[float]] = defaultdict(list)
         for r in difficult_rows or []:
             key = r.get("topic_key")
@@ -61,54 +74,38 @@ def get_class_insights(
             if acc is None:
                 continue
             acc_by_topic[str(key)].append(float(acc))
-
-        per_topic_acc: dict[str, float] = {}
-        for k in topic_keys:
-            vals = acc_by_topic.get(k, [])
-            if not vals:
-                continue
-            per_topic_acc[k] = sum(vals) / len(vals)
-
-        most_difficult_topic = None
-        if per_topic_acc:
-            most_difficult_topic = min(per_topic_acc.items(), key=lambda x: x[1])[0]
-
-    mastery_map: dict[tuple[object, str], float] = {}
-    mastery_docs = list(
-        db[COLLECTION_STUDENT_MASTERY].find(
-            {"student_id": {"$in": list(student_ids)}}
+        per_topic_acc = {k: sum(v) / len(v) for k, v in acc_by_topic.items() if v}
+        most_difficult_topic = (
+            min(per_topic_acc.items(), key=lambda x: x[1])[0] if per_topic_acc else None
         )
+
+    mastery_map: dict[tuple, float] = {}
+    mastery_docs = list(
+        db[COLLECTION_STUDENT_MASTERY].find({"student_id": {"$in": list(student_ids)}})
     )
     for doc in mastery_docs:
         sid = doc.get("student_id")
         subj = (doc.get("subject") or "").strip()
-        topic_mastery = doc.get("topic_mastery") or {}
-        if sid is None or not isinstance(topic_mastery, dict):
-            continue
-        for topic, val in topic_mastery.items():
+        for topic, val in (doc.get("topic_mastery") or {}).items():
             if not isinstance(val, (int, float)):
                 continue
             topic_key = f"{subj}::{topic}" if subj else str(topic)
-            mastery_map[(sid, str(topic_key))] = float(val)
+            mastery_map[(sid, topic_key)] = float(val)
 
     topic_avgs: list[float] = []
     topics_completed = 0
-    for topic_key in topic_keys:
-        avg = sum(
-            mastery_map.get((sid, topic_key), 0.0) for sid in student_ids
-        ) / students_attempted
+    for tk in topic_keys:
+        avg = sum(mastery_map.get((sid, tk), 0.0) for sid in student_ids) / students_attempted
         topic_avgs.append(avg)
         if avg >= 0.8:
             topics_completed += 1
 
-    average_mastery = (
-        (sum(topic_avgs) / len(topic_avgs)) if topic_avgs else None
-    )
+    average_mastery = sum(topic_avgs) / len(topic_avgs) if topic_avgs else None
 
     return {
-        "students_attempted": students_attempted,
-        "topics_completed": topics_completed,
-        "average_mastery": average_mastery,
+        "students_attempted":   students_attempted,
+        "topics_completed":     topics_completed,
+        "average_mastery":      average_mastery,
         "most_difficult_topic": most_difficult_topic,
     }
 
@@ -137,54 +134,58 @@ def student_dashboard(student_id: str) -> dict:
             except (TypeError, ValueError):
                 continue
 
-    weak_only = {k: v for k, v in merged_mastery.items() if isinstance(v, (int, float)) and v < 0.5}
+    weak_only = {
+        k: v for k, v in merged_mastery.items()
+        if isinstance(v, (int, float)) and v < 0.5
+    }
     weak_sorted = sorted(weak_only.items(), key=lambda x: (x[1], x[0]))
-
-    def _split_mastery_key(k: str) -> tuple[str, str]:
-        # Keys are currently built as "subject:topic" (single colon) or just "topic".
-        if not k or not isinstance(k, str):
-            return ("", k)
-        if "::" in k:
-            parts = k.split("::", 1)
-            if len(parts) == 2:
-                return (parts[0], parts[1])
-        if ":" in k:
-            parts = k.split(":", 1)
-            if len(parts) == 2:
-                return (parts[0], parts[1])
-        return ("", k)
-
     weak_topics = []
     for k, v in weak_sorted[:15]:
         subj, topic = _split_mastery_key(k)
         weak_topics.append({"key": k, "subject": subj, "topic": topic, "mastery": v})
 
-    recommended = ""
+    recommended: str | None = None
+    all_quizzes_completed = False
+
     if attempts:
-        recommended = (attempts[0].get("recommended_next_topic") or "").strip()
-    if not recommended and weak_topics:
+        latest = attempts[0]
+        rec_raw = latest.get("recommended_next_topic")
+        if rec_raw is not None:
+            recommended = str(rec_raw).strip() or None
+        else:
+            if "recommended_next_topic" in latest:
+                all_quizzes_completed = True
+
+    if not recommended and not all_quizzes_completed and weak_topics:
         recommended = weak_topics[0]["key"].split(":")[-1]
 
-    topic_query = recommended
     mats = []
-    if topic_query:
+    if recommended:
         mats = list(
             db[COLLECTION_LEARNING_MATERIALS]
-            .find({"topic": {"$regex": f"^{re.escape(topic_query)}$", "$options": "i"}})
+            .find({
+                "topic": {
+                    "$regex": f"^{re.escape(recommended)}$",
+                    "$options": "i",
+                }
+            })
             .limit(15)
         )
-    if not mats and weak_topics:
-        alt = weak_topics[0]["key"].split(":")[-1]
-        mats = list(
-            db[COLLECTION_LEARNING_MATERIALS].find({"topic": {"$regex": f"^{re.escape(alt)}$", "$options": "i"}}).limit(15)
-        )
+        if not mats and weak_topics:
+            alt = weak_topics[0]["key"].split(":")[-1]
+            mats = list(
+                db[COLLECTION_LEARNING_MATERIALS]
+                .find({"topic": {"$regex": f"^{re.escape(alt)}$", "$options": "i"}})
+                .limit(15)
+            )
 
     return {
-        "recent_attempts": serialize_docs(attempts),
-        "mastery_by_subject": mastery_by_subject,
-        "weak_topics": weak_topics,
+        "recent_attempts":        serialize_docs(attempts),
+        "mastery_by_subject":     mastery_by_subject,
+        "weak_topics":            weak_topics,
         "recommended_next_topic": recommended,
-        "suggested_materials": serialize_docs(mats),
+        "all_quizzes_completed":  all_quizzes_completed,
+        "suggested_materials":    serialize_docs(mats),
     }
 
 
@@ -197,19 +198,20 @@ def teacher_dashboard(teacher_id: str) -> dict:
     qids = list(quiz_by_id.keys())
     if not qids:
         return {
-            "average_score_percent": None,
+            "average_score_percent":     None,
             "unique_students_attempted": 0,
-            "total_attempts": 0,
-            "quizzes": serialize_docs(quizzes),
-            "quiz_summaries": [],
-            "most_difficult_topics": [],
+            "total_attempts":            0,
+            "quizzes":                   serialize_docs(quizzes),
+            "quiz_summaries":            [],
+            "most_difficult_topics":     [],
         }
 
     attempts = list(db[COLLECTION_QUIZ_ATTEMPTS].find({"quiz_id": {"$in": qids}}))
+    unique_students_attempted = len(
+        {a.get("student_id") for a in attempts if a.get("student_id")}
+    )
 
-    unique_students_attempted = len({a.get("student_id") for a in attempts if a.get("student_id")})
-
-    best_percent_by_student: dict[object, float] = {}
+    best_pct_by_student: dict[object, float] = {}
     for a in attempts:
         sid = a.get("student_id")
         if sid is None:
@@ -220,101 +222,65 @@ def teacher_dashboard(teacher_id: str) -> dict:
         pct = float(a.get("total_score") or 0) / mx
         if not isfinite(pct):
             continue
-        prev = best_percent_by_student.get(sid)
-        if prev is None or pct > prev:
-            best_percent_by_student[sid] = pct
+        if pct > best_pct_by_student.get(sid, -1):
+            best_pct_by_student[sid] = pct
 
-    best_percent_values = list(best_percent_by_student.values())
+    best_pct_values = list(best_pct_by_student.values())
     average_score_percent = (
-        round(100.0 * sum(best_percent_values) / len(best_percent_values), 2)
-        if best_percent_values
-        else None
+        round(100.0 * sum(best_pct_values) / len(best_pct_values), 2)
+        if best_pct_values else None
     )
 
-    def _split_subject_topic(label: str) -> tuple[str, str]:
-        if not label:
-            return ("", "")
-        parts = str(label).split("::", 1)
-        if len(parts) == 2:
-            return (parts[0].strip(), parts[1].strip())
-        # Fallback for older/single-colon keys.
-        if ":" in label:
-            left, right = str(label).split(":", 1)
-            return (left.strip(), right.strip())
-        return ("", str(label).strip())
-
-    best_accuracy: dict[tuple[object, str, str], float] = {}
+    best_accuracy: dict[tuple, float] = {}
     for a in attempts:
-        quiz_id = a.get("quiz_id")
-        quiz_meta = quiz_by_id.get(quiz_id) or {}
+        quiz_meta = quiz_by_id.get(a.get("quiz_id")) or {}
         difficulty = (quiz_meta.get("difficulty") or "").strip().lower()
         if difficulty not in ("easy", "medium", "hard"):
             continue
-
         sid = a.get("student_id")
         if sid is None:
             continue
-
-        tp = a.get("topic_performance") or {}
-        if not isinstance(tp, dict):
-            continue
-
-        for label, row in tp.items():
+        for label, row in (a.get("topic_performance") or {}).items():
             if not isinstance(row, dict):
                 continue
             tot = float(row.get("total") or 0)
             if tot <= 0:
                 continue
-            correct = float(row.get("correct") or 0)
-            acc = correct / tot
+            acc = float(row.get("correct") or 0) / tot
             if not isfinite(acc):
                 continue
-
             key = (sid, str(label), difficulty)
-            prev = best_accuracy.get(key)
-            if prev is None or acc > prev:
+            if acc > best_accuracy.get(key, -1):
                 best_accuracy[key] = acc
 
-    per_label_diff_students: defaultdict[tuple[str, str], list[float]] = defaultdict(list)
+    per_label_diff: defaultdict[tuple[str, str], list[float]] = defaultdict(list)
     for (sid, label, difficulty), acc in best_accuracy.items():
-        per_label_diff_students[(label, difficulty)].append(acc)
+        per_label_diff[(label, difficulty)].append(acc)
 
     difficult: list[dict] = []
-    for (label, difficulty), accs in per_label_diff_students.items():
-        if not accs:
-            continue
+    for (label, difficulty), accs in per_label_diff.items():
         avg_acc = sum(accs) / len(accs)
         subj, topic_name = _split_subject_topic(label)
-        difficult.append(
-            {
-                "topic_key": label,
-                "subject": subj,
-                "topic": topic_name,
-                "difficulty": difficulty,
-                "avg_accuracy": round(avg_acc, 4),
-            }
-        )
-
-    difficult.sort(
-        key=lambda x: (x["avg_accuracy"], x["topic_key"], x.get("difficulty") or "")
-    )
+        difficult.append({
+            "topic_key":    label,
+            "subject":      subj,
+            "topic":        topic_name,
+            "difficulty":   difficulty,
+            "avg_accuracy": round(avg_acc, 4),
+        })
+    difficult.sort(key=lambda x: (x["avg_accuracy"], x["topic_key"], x.get("difficulty") or ""))
 
     correct_by_label: defaultdict[str, float] = defaultdict(float)
     total_by_label: defaultdict[str, float] = defaultdict(float)
     for a in attempts:
-        tp = a.get("topic_performance") or {}
-        if not isinstance(tp, dict):
-            continue
-        for label, row in tp.items():
+        for label, row in (a.get("topic_performance") or {}).items():
             if not isinstance(row, dict):
                 continue
             tot = float(row.get("total") or 0)
             if tot <= 0:
                 continue
-            correct = float(row.get("correct") or 0)
-            lk = str(label)
-            correct_by_label[lk] += correct
-            total_by_label[lk] += tot
+            correct_by_label[str(label)] += float(row.get("correct") or 0)
+            total_by_label[str(label)] += tot
 
     topic_accuracy_rows: list[dict] = []
     for label in correct_by_label:
@@ -323,34 +289,29 @@ def teacher_dashboard(teacher_id: str) -> dict:
             continue
         acc = correct_by_label[label] / tden
         subj, topic_name = _split_subject_topic(label)
-        topic_accuracy_rows.append(
-            {
-                "topic_key": label,
-                "subject": subj,
-                "topic": topic_name,
-                "difficulty": "",
-                "avg_accuracy": round(acc, 4),
-            }
-        )
+        topic_accuracy_rows.append({
+            "topic_key":    label,
+            "subject":      subj,
+            "topic":        topic_name,
+            "difficulty":   "",
+            "avg_accuracy": round(acc, 4),
+        })
     topic_accuracy_rows.sort(key=lambda x: (x["avg_accuracy"], x["topic_key"]))
 
-    quiz_summaries: list[dict] = []
-    attempts_by_quiz: dict[object, list[dict]] = defaultdict(list)
+    attempts_by_quiz: defaultdict[object, list[dict]] = defaultdict(list)
     for a in attempts:
         qid = a.get("quiz_id")
-        if qid is None:
-            continue
-        attempts_by_quiz[qid].append(a)
+        if qid is not None:
+            attempts_by_quiz[qid].append(a)
 
+    quiz_summaries: list[dict] = []
     for q in quizzes:
         qid = q["_id"]
         sub = attempts_by_quiz.get(qid, [])
-
-        # best % per student on this quiz.
-        best_pct_by_student: dict[object, float] = {}
+        best: dict[object, float] = {}
         for a in sub:
-            sid = a.get("student_id")
-            if sid is None:
+            s = a.get("student_id")
+            if s is None:
                 continue
             mx = float(a.get("max_score") or 0)
             if mx <= 0:
@@ -358,20 +319,14 @@ def teacher_dashboard(teacher_id: str) -> dict:
             pct = float(a.get("total_score") or 0) / mx
             if not isfinite(pct):
                 continue
-            prev = best_pct_by_student.get(sid)
-            if prev is None or pct > prev:
-                best_pct_by_student[sid] = pct
-
-        best_pcts = list(best_pct_by_student.values())
-        quiz_summaries.append(
-            {
-                "quiz": serialize_doc(q),
-                "attempt_count": len(best_pct_by_student),  # unique students
-                "average_percent": round(100.0 * sum(best_pcts) / len(best_pcts), 2)
-                if best_pcts
-                else None,
-            }
-        )
+            if pct > best.get(s, -1):
+                best[s] = pct
+        best_pcts = list(best.values())
+        quiz_summaries.append({
+            "quiz":            serialize_doc(q),
+            "attempt_count":   len(best),
+            "average_percent": round(100.0 * sum(best_pcts) / len(best_pcts), 2) if best_pcts else None,
+        })
 
     student_ids = {a.get("student_id") for a in attempts if a.get("student_id") is not None}
     topic_acc_map = {r["topic_key"]: float(r["avg_accuracy"]) for r in topic_accuracy_rows}
@@ -379,29 +334,24 @@ def teacher_dashboard(teacher_id: str) -> dict:
         db,
         student_ids=student_ids,
         difficult_rows=difficult,
-        topic_accuracy_by_key=topic_acc_map if topic_acc_map else None,
+        topic_accuracy_by_key=topic_acc_map or None,
     )
 
-    topic_mastery_distribution = get_topic_mastery_distribution(difficult)
-
     return {
-        "average_score_percent": average_score_percent,
-        "unique_students_attempted": unique_students_attempted,
-        "total_attempts": len(attempts),
-        "quizzes": serialize_docs(quizzes),
-        "quiz_summaries": quiz_summaries,
-        "most_difficult_topics": topic_accuracy_rows[:15],
-        "topic_mastery_distribution": topic_mastery_distribution,
-        "class_insights": class_insights,
+        "average_score_percent":      average_score_percent,
+        "unique_students_attempted":  unique_students_attempted,
+        "total_attempts":             len(attempts),
+        "quizzes":                    serialize_docs(quizzes),
+        "quiz_summaries":             quiz_summaries,
+        "most_difficult_topics":      topic_accuracy_rows[:15],
+        "topic_mastery_distribution": get_topic_mastery_distribution(difficult),
+        "class_insights":             class_insights,
     }
 
 
 def get_student_progress(teacher_id_str: str) -> list[dict]:
-    from db.schema import COLLECTION_USERS, COLLECTION_QUIZ_ASSIGNMENTS
-    from services.serialization import require_oid
-
     tid = require_oid(teacher_id_str, "teacher_id")
-    db  = get_db()
+    db = get_db()
 
     quizzes = list(db[COLLECTION_QUIZZES].find({"teacher_id": tid}, {"_id": 1}))
     qids = [q["_id"] for q in quizzes]
@@ -413,7 +363,6 @@ def get_student_progress(teacher_id_str: str) -> list[dict]:
         .find({"quiz_id": {"$in": qids}})
         .sort("submitted_at", 1)
     )
-
     student_ids = list({a["student_id"] for a in attempts if a.get("student_id")})
     if not student_ids:
         return []
@@ -428,18 +377,17 @@ def get_student_progress(teacher_id_str: str) -> list[dict]:
         if not sid:
             continue
         tm = doc.get("topic_mastery") or {}
-        if not mastery_by_sid.get(sid):
-            mastery_by_sid[sid] = {}
-        mastery_by_sid[sid].update({t: float(v) for t, v in tm.items() if isinstance(v, (int, float))})
+        mastery_by_sid.setdefault(sid, {}).update(
+            {t: float(v) for t, v in tm.items() if isinstance(v, (int, float))}
+        )
 
     attempts_by_sid: dict = {}
     for a in attempts:
         sid = a.get("student_id")
-        if not sid:
-            continue
-        attempts_by_sid.setdefault(sid, []).append(a)
+        if sid:
+            attempts_by_sid.setdefault(sid, []).append(a)
 
-    def classify(pct):
+    def classify(pct: float) -> str:
         if pct < 40:  return "beginner"
         if pct < 60:  return "struggling"
         if pct < 75:  return "improving"
@@ -454,16 +402,13 @@ def get_student_progress(teacher_id_str: str) -> list[dict]:
 
         avg_mastery = round(sum(tm.values()) / len(tm) * 100, 1) if tm else 0.0
         best_topic = max(tm.items(), key=lambda x: x[1])[0] if tm else "—"
-        mastery_state = classify(avg_mastery)
 
         trend = "—"
         if len(sid_attempts) >= 2:
             def pct_of(a):
                 mx = float(a.get("max_score") or 0)
-                return (float(a.get("total_score") or 0) / mx * 100) if mx else 0
-            latest_pct = pct_of(sid_attempts[-1])
-            prev_pct   = pct_of(sid_attempts[-2])
-            delta = latest_pct - prev_pct
+                return (float(a.get("total_score") or 0) / mx * 100) if mx else 0.0
+            delta = pct_of(sid_attempts[-1]) - pct_of(sid_attempts[-2])
             if delta >= 20:    trend = "↑↑"
             elif delta >= 5:   trend = "↑"
             elif delta >= -5:  trend = "→"
@@ -471,14 +416,14 @@ def get_student_progress(teacher_id_str: str) -> list[dict]:
             else:              trend = "↓↓"
 
         out.append({
-            "student_id":    str(sid),
-            "full_name":     user.get("full_name") or user.get("email") or str(sid),
-            "department":    user.get("department") or "—",
-            "mastery_state": mastery_state,
-            "avg_mastery":   avg_mastery,
-            "best_topic":    best_topic,
+            "student_id":     str(sid),
+            "full_name":      user.get("full_name") or user.get("email") or str(sid),
+            "department":     user.get("department") or "—",
+            "mastery_state":  classify(avg_mastery),
+            "avg_mastery":    avg_mastery,
+            "best_topic":     best_topic,
             "total_attempts": len(sid_attempts),
-            "trend":         trend,
+            "trend":          trend,
         })
 
     out.sort(key=lambda x: x["avg_mastery"], reverse=True)
