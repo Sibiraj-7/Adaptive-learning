@@ -192,35 +192,46 @@ def _get_assigned_quiz_topics(db, student_id: ObjectId) -> list[dict]:
 
 
 def _pick_next_topic(
-    action: str,
-    assigned_rows: list[dict],
-    topic_mastery: dict[str, float],
+    db,
+    student_id,
     current_topic: str,
-) -> str | None:
-    unattempted = [r for r in assigned_rows if not r["attempted"]]
+    current_difficulty: str,
+    score: float,
+    max_score: float,
+):
+    if max_score > 0 and (score / max_score) < 0.70:
+        return current_topic
 
-    if not unattempted:
-        return None
+    quizzes = list(
+        db[COLLECTION_QUIZZES].find(
+            {},
+            {"topic": 1, "difficulty": 1}
+        )
+    )
 
-    lo, hi = ACTION_THRESHOLDS[action]
+    topics = sorted(
+        list({
+            (q.get("topic") or "").strip()
+            for q in quizzes
+            if q.get("topic")
+        })
+    )
 
-    def mastery_of(row: dict) -> float:
-        return topic_mastery.get(row["topic"], 0.0)
+    if current_difficulty == "easy":
+        return current_topic
 
-    candidates = [r for r in unattempted if lo <= mastery_of(r) < hi]
+    if current_difficulty == "medium":
+        return current_topic
 
-    if not candidates:
-        candidates = unattempted
+    if current_difficulty == "hard":
+        try:
+            idx = topics.index(current_topic)
+            if idx + 1 < len(topics):
+                return topics[idx + 1]
+        except ValueError:
+            pass
 
-    if action == "revisit":
-        return min(candidates, key=lambda r: (mastery_of(r), r["_diff_order"], r["topic"]))["topic"]
-
-    if action == "practice":
-        return max(candidates, key=lambda r: (mastery_of(r), -r["_diff_order"]))["topic"]
-
-    not_started = [r for r in candidates if mastery_of(r) == 0.0]
-    pool = not_started if not_started else candidates
-    return min(pool, key=lambda r: (r["_diff_order"], r["topic"]))["topic"]
+    return None
 
 
 def generate_recommendation(
@@ -273,7 +284,14 @@ def generate_recommendation(
             q_values = qtable.get(mastery_level, q_values)
 
             assigned_rows = _get_assigned_quiz_topics(db, sid)
-            recommended_topic = _pick_next_topic(action, assigned_rows, topic_mastery, current_topic)
+            recommended_topic = _pick_next_topic(
+                                    db,
+                                    sid,
+                                    current_topic,
+                                    quiz_difficulty,
+                                    float(score),
+                                    float(max_score),
+                                )
             all_done = recommended_topic is None
 
         except Exception:
